@@ -7,8 +7,8 @@
 | 1     | Foundation (Docker, scaffolding, DB) | **COMPLETE** |
 | 2     | Backend API + WebSocket + Tests      | **COMPLETE** |
 | 3     | Frontend Management UI + Tests       | **COMPLETE** |
-| 4     | Slideshow + Touch + Live Updates     | **CURRENT**  |
-| 5     | E2E Tests + Docker Polish            | Pending      |
+| 4     | Slideshow + Touch + Live Updates     | **COMPLETE** |
+| 5     | E2E Tests + Docker Polish            | **CURRENT**  |
 
 ---
 
@@ -76,61 +76,52 @@
 
 ---
 
-## Phase 4 — CURRENT: Slideshow + Touch + Live Updates
+## Phase 4 — COMPLETE: Slideshow + Touch + Live Updates
 
-### Definition of Done
-- [ ] `useWebSocket` hook: auto-connect, auto-reconnect, event dispatch
-- [ ] `useGestures` hook: swipe left/right, single tap, long press via @use-gesture/react
-- [ ] `SlideshowPage`: fullscreen display, preload next image, CSS crossfade transition, auto-advance timer
-- [ ] Video playback: `<video autoplay muted>`, freeze on last frame, same blur background
-- [ ] Blur background effect: blurred cover behind contained image/video (CSS only)
-- [ ] `SlideshowOverlay`: frosted glass bottom sheet, interval slider, transition/order toggles, pause/play, "Manage Photos" link
-- [ ] Touch gestures wired: swipe nav, tap overlay toggle, long-press pause
-- [ ] WebSocket wired: live photo list updates (add/delete), settings sync
-- [ ] Tests: slideshow logic, gesture handlers, overlay, WebSocket hook
-- [ ] `./scripts/test-frontend.sh` passes clean (all 27 existing + new tests)
+**What was done:**
+- `useWebSocket` hook: auto-connect to `ws://host/ws`, auto-reconnect (2s delay), JSON event parsing, callback pattern via `onEvent`, clean disconnect on unmount
+- `useGestures` hook: wraps `@use-gesture/react` `useDrag` for swipe left/right, tap detection via `filterTaps`, long press via manual timer (500ms) — `useLongPress` not available in `@use-gesture/react`
+- `SlideshowPage` fullscreen rewrite:
+  - Fetches media list + settings via `Promise.all`, loading spinner, empty state with upload link
+  - Playlist ordering: random (Fisher-Yates shuffle), sequential, newest
+  - Auto-advance timer based on `slideshow_interval` setting, pauses when `paused` state
+  - CSS crossfade/slide transitions between current and previous slide
+  - Blur background effect: `object-cover` + `blur(30px)` + `brightness(0.7)` + `scale(1.2)` background, `object-contain` foreground
+  - Photo: `<img>`, Video: `<video autoplay muted>` (freezes on last frame naturally)
+  - Preloads next image for smooth transitions
+  - Keyboard support: ArrowLeft/Right, Space (pause), Escape (close overlay)
+- `SlideshowOverlay` component: frosted glass bottom sheet (`bg-black/60 backdrop-blur-xl`), interval slider, transition/order toggle buttons, pause/play with SVG icons, "Manage Photos" link, auto-hide after 5s
+- Touch gestures wired: swipe left → next, swipe right → prev, tap → toggle overlay, long press → pause/resume
+- WebSocket wired: `media_added`/`media_deleted` → refetch media list, `settings_changed` → update slideshow settings in real-time
+- 17 new tests (44 total): 4 useWebSocket, 3 useGestures, 6 SlideshowOverlay, 4 SlideshowPage
 
-### Ordered Task List
+**Test breakdown (new):**
+- `useWebSocket.test.ts` (4) — connect on mount, onEvent callback, auto-reconnect, cleanup on unmount
+- `useGestures.test.ts` (3) — returns bind/cleanup functions, bind returns handler props, works with no callbacks
+- `SlideshowOverlay.test.tsx` (6) — renders controls, Play/Pause toggle, onTogglePause, transition update, order update, hidden state
+- `SlideshowPage.test.tsx` (4) — loading spinner, empty state, renders first photo, pause indicator on space key
 
-1. **useWebSocket hook** (`frontend/src/hooks/useWebSocket.ts`)
-   - Connect to `ws://host/ws`, auto-reconnect on disconnect
-   - Parse JSON messages, expose `lastEvent` or callback pattern
-   - Clean disconnect on unmount
+**Verified:** `docker compose exec frontend npm test` → 44 passed, `npx tsc --noEmit` → clean
 
-2. **useGestures hook** (`frontend/src/hooks/useGestures.ts`)
-   - Wrap @use-gesture/react for slideshow: swipe left/right, tap, long press
-   - Return bind function for gesture target element
-
-3. **SlideshowPage** — fullscreen rewrite
-   - Fetch media list, handle empty state
-   - Current slide index, auto-advance timer based on settings
-   - CSS crossfade between current and next slide
-   - Blur background effect (bg: cover+blur, fg: contain)
-   - Photo: `<img>`, Video: `<video autoplay muted>`
-
-4. **SlideshowOverlay** (`frontend/src/components/SlideshowOverlay.tsx`)
-   - Frosted glass bottom sheet (backdrop-blur)
-   - Controls: interval slider, transition/order toggles, pause/play
-   - "Manage Photos" link to gallery
-   - Auto-hide after 5s of inactivity
-
-5. **Wire gestures + overlay + WebSocket**
-   - Swipe left → next, swipe right → previous
-   - Tap → toggle overlay
-   - Long press → pause/resume
-   - WebSocket media_added/deleted → refresh media list
-   - WebSocket settings_changed → update slideshow behavior
-
-6. **Tests for new functionality**
-   - useWebSocket hook tests
-   - useGestures hook tests
-   - SlideshowOverlay component tests
-   - Slideshow logic tests (advance, pause, video handling)
-
-7. **Verify & update state**
+**Decisions:**
+- `useLongPress` not exported from `@use-gesture/react` — implemented long press via `setTimeout` within `useDrag` handler
+- WebSocket mock tests use `vi.stubGlobal("WebSocket", MockWS)` in `beforeEach` + `act(async => renderHook)` pattern for proper effect flushing
+- SlideshowPage fetches all media (up to 1000) in one call for playlist — no pagination needed for slideshow
+- Overlay auto-hide timer resets on settings changes (user interaction keeps it visible)
 
 ---
 
-## Phase 5 — Pending: E2E Tests + Docker Polish
+## Phase 5 — CURRENT: E2E Tests + Docker Polish
 
-Playwright tests (gallery, upload, settings, slideshow, touch, responsive, live-update). Production Docker config with nginx.
+### Definition of Done
+- [ ] Playwright config: Chromium, desktop + mobile viewports
+- [ ] Test fixtures: page objects, test images, API helpers
+- [ ] E2E: gallery CRUD flow
+- [ ] E2E: upload flows (drag-drop, multi-file, invalid files)
+- [ ] E2E: settings modification + persistence
+- [ ] E2E: slideshow display + transitions
+- [ ] E2E: touch gestures (swipe, tap overlay, long-press)
+- [ ] E2E: responsive layout (mobile vs desktop)
+- [ ] E2E: live update (add photo while slideshow runs)
+- [ ] Docker prod mode: nginx for frontend, optimized builds
+- [ ] `./scripts/test-all.sh` passes clean
