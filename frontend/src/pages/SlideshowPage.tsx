@@ -132,9 +132,9 @@ export default function SlideshowPage() {
       return;
     }
 
-    advanceTimer.current = setTimeout(goNext, interval * 1000);
+    advanceTimer.current = setTimeout(() => goNextRef.current(), interval * 1000);
     return () => clearTimeout(advanceTimer.current);
-  }, [currentMedia?.id, paused, settings, goNext]);
+  }, [currentMedia?.id, paused, settings?.slideshow_interval, currentMedia?.media_type, currentMedia?.duration, playlist.length]);
 
   // ─── Video handlers (stable refs to avoid Slide re-renders) ──
 

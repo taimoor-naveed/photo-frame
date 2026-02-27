@@ -59,9 +59,16 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 
 ## Recent Changes
 
+### Auto-Advance Timer Fix (2026-02-27)
+
+Fixed slideshow timer never firing or resetting endlessly:
+- **Root cause 1**: `goNext` function reference in timer effect deps caused 1000+ timer resets per page load — replaced with stable `goNextRef` and primitive deps
+- **Root cause 2**: With 1-item playlist, timer fired but `currentMedia?.id` didn't change, so no new timer was scheduled — added `playlist.length` to deps so timer restarts when photos are added
+- Timer now fires exactly once per interval, and restarts correctly when playlist grows
+
 ### Test Hardening — Slideshow Identity Assertions (2026-02-27)
 
-Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slide` component (2 lines of production code) to enable tests to verify _which_ media is displayed, not just _that something_ rendered.
+Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slide` component to enable tests to verify _which_ media is displayed, not just _that something_ rendered.
 
 **Unit tests (SlideshowPage.test.tsx):**
 - Rewrote 8 weak assertions that used `toBeGreaterThan(0)` to verify specific media IDs
