@@ -45,7 +45,6 @@ def test_settings_out():
     data = SettingsOut(
         slideshow_interval=15,
         transition_type="fade",
-        photo_order="sequential",
     )
     assert data.slideshow_interval == 15
 

@@ -6,7 +6,6 @@ import type { Settings } from "../api/client";
 const mockSettings: Settings = {
   slideshow_interval: 10,
   transition_type: "crossfade",
-  photo_order: "random",
 };
 
 describe("SlideshowOverlay", () => {
@@ -26,7 +25,6 @@ describe("SlideshowOverlay", () => {
     expect(screen.getByText("Pause")).toBeInTheDocument();
     expect(screen.getByText("Manage Photos")).toBeInTheDocument();
     expect(screen.getByText("crossfade")).toBeInTheDocument();
-    expect(screen.getByText("random")).toBeInTheDocument();
   });
 
   it("shows Play when paused", () => {
@@ -81,8 +79,7 @@ describe("SlideshowOverlay", () => {
     expect(onUpdate).toHaveBeenCalledWith({ transition_type: "slide" });
   });
 
-  it("calls onUpdateSettings when order button clicked", () => {
-    const onUpdate = vi.fn();
+  it("does not render order buttons", () => {
     render(
       <MemoryRouter>
         <SlideshowOverlay
@@ -90,13 +87,15 @@ describe("SlideshowOverlay", () => {
           settings={mockSettings}
           paused={false}
           onTogglePause={() => {}}
-          onUpdateSettings={onUpdate}
+          onUpdateSettings={() => {}}
         />
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByText("sequential"));
-    expect(onUpdate).toHaveBeenCalledWith({ photo_order: "sequential" });
+    expect(screen.queryByText("Order")).not.toBeInTheDocument();
+    expect(screen.queryByText("random")).not.toBeInTheDocument();
+    expect(screen.queryByText("sequential")).not.toBeInTheDocument();
+    expect(screen.queryByText("newest")).not.toBeInTheDocument();
   });
 
   it("has translate-y-full when not visible", () => {

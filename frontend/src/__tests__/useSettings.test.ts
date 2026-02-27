@@ -5,7 +5,6 @@ import type { Settings } from "../api/client";
 const mockSettings: Settings = {
   slideshow_interval: 10,
   transition_type: "crossfade",
-  photo_order: "random",
 };
 
 beforeEach(() => {

@@ -4,7 +4,7 @@ def test_get_settings_defaults(client):
     data = response.json()
     assert data["slideshow_interval"] == 10
     assert data["transition_type"] == "crossfade"
-    assert data["photo_order"] == "random"
+    assert "photo_order" not in data
 
 
 def test_update_settings_full(client):
@@ -13,19 +13,17 @@ def test_update_settings_full(client):
         json={
             "slideshow_interval": 20,
             "transition_type": "fade",
-            "photo_order": "sequential",
         },
     )
     assert response.status_code == 200
     data = response.json()
     assert data["slideshow_interval"] == 20
     assert data["transition_type"] == "fade"
-    assert data["photo_order"] == "sequential"
 
 
 def test_update_settings_partial(client):
     # First set to known state
-    client.put("/api/settings", json={"slideshow_interval": 10, "transition_type": "crossfade", "photo_order": "random"})
+    client.put("/api/settings", json={"slideshow_interval": 10, "transition_type": "crossfade"})
 
     # Partial update — only interval
     response = client.put("/api/settings", json={"slideshow_interval": 30})
@@ -33,7 +31,6 @@ def test_update_settings_partial(client):
     data = response.json()
     assert data["slideshow_interval"] == 30
     assert data["transition_type"] == "crossfade"  # unchanged
-    assert data["photo_order"] == "random"  # unchanged
 
 
 def test_settings_persist(client):
@@ -41,3 +38,14 @@ def test_settings_persist(client):
 
     response = client.get("/api/settings")
     assert response.json()["slideshow_interval"] == 42
+
+
+def test_unknown_field_photo_order_ignored(client):
+    """PUT with unknown field photo_order is ignored (backwards compatibility)."""
+    response = client.put(
+        "/api/settings",
+        json={"photo_order": "random"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "photo_order" not in data

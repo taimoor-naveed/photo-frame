@@ -32,7 +32,6 @@ class MediaListOut(BaseModel):
 class SettingsOut(BaseModel):
     slideshow_interval: int
     transition_type: str
-    photo_order: str
 
     model_config = {"from_attributes": True}
 
@@ -40,4 +39,3 @@ class SettingsOut(BaseModel):
 class SettingsUpdate(BaseModel):
     slideshow_interval: int | None = None
     transition_type: str | None = None
-    photo_order: str | None = None

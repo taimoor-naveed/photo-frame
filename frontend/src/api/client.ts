@@ -28,13 +28,11 @@ export interface MediaList {
 export interface Settings {
   slideshow_interval: number;
   transition_type: string;
-  photo_order: string;
 }
 
 export interface SettingsUpdate {
   slideshow_interval?: number;
   transition_type?: string;
-  photo_order?: string;
 }
 
 class ApiError extends Error {

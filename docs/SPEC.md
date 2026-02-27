@@ -54,7 +54,6 @@ settings:
   id                  INTEGER PRIMARY KEY DEFAULT 1
   slideshow_interval  INTEGER NOT NULL DEFAULT 10    -- seconds
   transition_type     TEXT NOT NULL DEFAULT 'crossfade'
-  photo_order         TEXT NOT NULL DEFAULT 'random'
 ```
 
 No migrations — tables auto-created via `Base.metadata.create_all()`.
@@ -135,7 +134,7 @@ Works for both `<img>` and `<video>`.
 - **None**: instant swap
 
 ### Settings Overlay
-Frosted glass bottom sheet. Controls: interval slider, transition toggle, order toggle, pause/play, "Manage Photos" link. Auto-hides after 5s of inactivity. Any interaction inside the overlay resets the timer. Clicking/tapping outside the overlay dismisses it. Pointer events inside the overlay do not propagate to the slideshow tap zones.
+Frosted glass bottom sheet. Controls: interval slider, transition toggle, pause/play, "Manage Photos" link. Auto-hides after 5s of inactivity. Any interaction inside the overlay resets the timer. Clicking/tapping outside the overlay dismisses it. Pointer events inside the overlay do not propagate to the slideshow tap zones.
 
 ## UX / Design Principles
 

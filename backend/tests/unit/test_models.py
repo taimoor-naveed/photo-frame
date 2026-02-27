@@ -56,4 +56,3 @@ def test_settings_defaults(db_session):
 
     assert settings.slideshow_interval == 10
     assert settings.transition_type == "crossfade"
-    assert settings.photo_order == "random"
