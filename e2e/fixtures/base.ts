@@ -123,73 +123,66 @@ export async function apiWaitForProcessing(
   throw new Error(`Media ${mediaId} still processing after ${timeoutMs}ms`);
 }
 
-// ─── Test Image Generation ───────────────────────────────────
+// ─── Test Data ──────────────────────────────────────────────
+// Real sample files mounted from test_data/ via docker-compose volume.
+// Fallback: generate synthetic files if test_data is not available.
 
-function generateTestPng(): Buffer {
-  // Valid 2x2 red PNG - generated from specification
-  // PNG signature + IHDR + IDAT + IEND
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const TEST_DATA_DIR = "/test_data";
+const SAMPLE_IMAGES = ["sample4.jpeg", "sample6.jpeg", "sample7.jpeg", "sample8.jpeg", "sample9.jpeg"];
+const SAMPLE_VIDEOS = ["sample1.mp4", "sample2.mp4", "sample3.mp4", "sample5.mp4"];
 
-  // IHDR chunk: 2x2, 8-bit RGB
-  const ihdrData = Buffer.alloc(13);
-  ihdrData.writeUInt32BE(2, 0); // width
-  ihdrData.writeUInt32BE(2, 4); // height
-  ihdrData[8] = 8; // bit depth
-  ihdrData[9] = 2; // color type (RGB)
-  ihdrData[10] = 0; // compression
-  ihdrData[11] = 0; // filter
-  ihdrData[12] = 0; // interlace
-  const ihdr = createPngChunk("IHDR", ihdrData);
-
-  // IDAT: raw image data (filter byte 0 + 3 bytes per pixel * 2 pixels per row * 2 rows)
-  // Row 1: filter=0, R G B, R G B
-  // Row 2: filter=0, R G B, R G B
-  const rawData = Buffer.from([
-    0, 255, 0, 0, 255, 0, 0, // row 1: red, red
-    0, 255, 0, 0, 255, 0, 0, // row 2: red, red
-  ]);
-
-  // Deflate the raw data
-  const zlib = require("zlib");
-  const compressed = zlib.deflateSync(rawData);
-  const idat = createPngChunk("IDAT", compressed);
-
-  // IEND
-  const iend = createPngChunk("IEND", Buffer.alloc(0));
-
-  return Buffer.concat([signature, ihdr, idat, iend]);
+function getSampleImage(index = 0): string {
+  const file = path.join(TEST_DATA_DIR, SAMPLE_IMAGES[index % SAMPLE_IMAGES.length]);
+  if (fs.existsSync(file)) return file;
+  // Fallback: generate a minimal JPEG
+  return generateFallbackImage();
 }
 
-function createPngChunk(type: string, data: Buffer): Buffer {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  const typeBuffer = Buffer.from(type, "ascii");
-  const crcData = Buffer.concat([typeBuffer, data]);
+function getSampleVideo(index = 0): string {
+  const file = path.join(TEST_DATA_DIR, SAMPLE_VIDEOS[index % SAMPLE_VIDEOS.length]);
+  if (fs.existsSync(file)) return file;
+  // Fallback: generate a minimal WebM
+  return generateFallbackVideo();
+}
 
-  // CRC32
-  let crc = 0xffffffff;
-  for (let i = 0; i < crcData.length; i++) {
-    crc ^= crcData[i];
-    for (let j = 0; j < 8; j++) {
-      crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
-    }
+function generateFallbackImage(): string {
+  const dir = path.join(__dirname, "test-images");
+  const imgPath = path.join(dir, "fallback.jpg");
+  if (!fs.existsSync(imgPath)) {
+    fs.mkdirSync(dir, { recursive: true });
+    // 2x2 red JPEG via ffmpeg
+    execSync(
+      `ffmpeg -f lavfi -i color=c=red:s=100x100:d=1 -vframes 1 "${imgPath}" -y`,
+      { stdio: "pipe" },
+    );
   }
-  crc = (crc ^ 0xffffffff) >>> 0;
-  const crcBuffer = Buffer.alloc(4);
-  crcBuffer.writeUInt32BE(crc, 0);
-
-  return Buffer.concat([length, typeBuffer, data, crcBuffer]);
+  return imgPath;
 }
 
-// ─── Test Video Generation ───────────────────────────────────
-
-function generateTestVideo(durationSec: number): string {
+function generateFallbackVideo(): string {
   const dir = path.join(__dirname, "test-videos");
-  const videoPath = path.join(dir, `test-${durationSec}s.webm`);
+  const videoPath = path.join(dir, "fallback-5s.webm");
   if (!fs.existsSync(videoPath)) {
     fs.mkdirSync(dir, { recursive: true });
     execSync(
-      `ffmpeg -f lavfi -i color=c=blue:s=320x240:d=${durationSec} -c:v libvpx -b:v 200k -t ${durationSec} "${videoPath}" -y`,
+      `ffmpeg -f lavfi -i color=c=blue:s=320x240:d=5 -c:v libvpx -b:v 200k -t 5 "${videoPath}" -y`,
+      { stdio: "pipe" },
+    );
+  }
+  return videoPath;
+}
+
+/**
+ * Generate an HEVC (H.265) MP4 video — triggers backend transcoding.
+ * Always generated (real samples are H.264 which skip transcoding).
+ */
+function generateHevcVideo(durationSec: number): string {
+  const dir = path.join(__dirname, "test-videos");
+  const videoPath = path.join(dir, `test-hevc-${durationSec}s.mp4`);
+  if (!fs.existsSync(videoPath)) {
+    fs.mkdirSync(dir, { recursive: true });
+    execSync(
+      `ffmpeg -f lavfi -i testsrc2=s=1280x720:d=${durationSec}:rate=30 -c:v libx265 -preset ultrafast -t ${durationSec} "${videoPath}" -y`,
       { stdio: "pipe" },
     );
   }
@@ -201,22 +194,23 @@ function generateTestVideo(durationSec: number): string {
 type TestFixtures = {
   testImagePath: string;
   testVideoPath: string;
+  testHevcVideoPath: string;
   cleanState: void;
 };
 
 export const test = base.extend<TestFixtures>({
   testImagePath: async ({}, use) => {
-    const dir = path.join(__dirname, "test-images");
-    const imgPath = path.join(dir, "test-photo.png");
-    if (!fs.existsSync(imgPath)) {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(imgPath, generateTestPng());
-    }
-    await use(imgPath);
+    await use(getSampleImage(0));
   },
 
   testVideoPath: async ({}, use) => {
-    const videoPath = generateTestVideo(5);
+    // VP8/WebM: H.264 MP4 does NOT play in headless Chromium.
+    // Slideshow playback tests need WebM. For real MP4 samples, use getSampleVideo().
+    await use(generateFallbackVideo());
+  },
+
+  testHevcVideoPath: async ({}, use) => {
+    const videoPath = generateHevcVideo(15);
     await use(videoPath);
   },
 
@@ -231,4 +225,4 @@ export const test = base.extend<TestFixtures>({
   ],
 });
 
-export { expect };
+export { expect, getSampleImage };

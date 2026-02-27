@@ -34,6 +34,8 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - frontend
+    volumes:
+      - ./test_data:/test_data:ro
     environment:
       - BASE_URL=http://frontend:5173
     profiles:

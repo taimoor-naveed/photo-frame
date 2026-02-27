@@ -6,6 +6,7 @@ export interface WsEvent {
     | "media_deleted"
     | "media_processing_complete"
     | "media_processing_error"
+    | "media_processing_progress"
     | "settings_changed";
   payload: Record<string, unknown>;
 }

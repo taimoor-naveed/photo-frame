@@ -28,12 +28,27 @@ def _broadcast(loop: asyncio.AbstractEventLoop, message: dict) -> None:
 def _transcode_in_background(
     media_id: int,
     original_path: Path,
+    duration: float,
     loop: asyncio.AbstractEventLoop,
 ) -> None:
     """Run ffmpeg transcode in a background thread, then update DB + notify clients."""
     try:
         transcoded_filename = f"{uuid.uuid4()}.mp4"
-        transcode_to_h264(original_path, transcoded_filename)
+        last_broadcast = [0]  # mutable container for closure
+
+        def _on_progress(pct: int) -> None:
+            # Throttle: only broadcast every 3 percentage points
+            if pct - last_broadcast[0] >= 3 or pct >= 100:
+                last_broadcast[0] = pct
+                _broadcast(loop, {
+                    "type": "media_processing_progress",
+                    "payload": {"id": media_id, "progress": pct},
+                })
+
+        transcode_to_h264(
+            original_path, transcoded_filename,
+            duration=duration, on_progress=_on_progress,
+        )
 
         db = SessionLocal()
         try:
@@ -144,7 +159,7 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 original_path = config.ORIGINALS_DIR / info["filename"]
                 thread = threading.Thread(
                     target=_transcode_in_background,
-                    args=(media.id, original_path, loop),
+                    args=(media.id, original_path, info["duration"], loop),
                     daemon=True,
                 )
                 thread.start()

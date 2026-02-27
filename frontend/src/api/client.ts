@@ -13,6 +13,7 @@ export interface Media {
   thumb_filename: string;
   transcoded_filename: string | null;
   processing_status: "processing" | "ready" | "error";
+  processing_progress?: number; // 0-100, only during transcoding
   content_hash: string | null;
   uploaded_at: string;
 }

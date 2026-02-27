@@ -137,9 +137,13 @@ export default function UploadPage() {
                 accept={ACCEPTED}
                 className="hidden"
                 onChange={(e) => {
-                  if (e.target.files) handleFiles(e.target.files);
-                  // Clear value so re-selecting the same file triggers onChange
-                  e.currentTarget.value = "";
+                  if (e.target.files && e.target.files.length > 0) {
+                    // Copy to array BEFORE clearing — some browsers invalidate
+                    // File objects when the input value is reset.
+                    const files = Array.from(e.target.files);
+                    e.currentTarget.value = "";
+                    handleFiles(files);
+                  }
                 }}
               />
               {status === "error" && (

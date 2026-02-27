@@ -50,6 +50,13 @@ export function usePhotos() {
     (event: WsEvent) => {
       if (event.type === "media_added" || event.type === "media_deleted") {
         fetchPhotos();
+      } else if (event.type === "media_processing_progress") {
+        const { id, progress } = event.payload as { id: number; progress: number };
+        setPhotos((prev) =>
+          prev.map((p) =>
+            p.id === id ? { ...p, processing_progress: progress } : p,
+          ),
+        );
       } else if (event.type === "media_processing_complete") {
         // Update the specific media item in-place
         const updated = event.payload as unknown as Media;

@@ -6,7 +6,73 @@ import {
   apiGetMedia,
   apiDeleteMedia,
   apiWaitForProcessing,
+  getSampleImage,
 } from "../fixtures/base";
+
+const BACKEND_URL = process.env.BACKEND_URL || "http://backend:8000";
+
+// ─── Helpers ──────────────────────────────────────────────────
+
+async function setSettings(overrides: Record<string, unknown>) {
+  await fetch(`${BACKEND_URL}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(overrides),
+  });
+}
+
+/** Foreground image src of the current slide (z-10 layer). */
+async function currentSlideSrc(page: import("@playwright/test").Page) {
+  return page
+    .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
+    .getAttribute("src");
+}
+
+/** Tap the right half of the screen (go next). */
+async function tapRight(page: import("@playwright/test").Page) {
+  const vp = page.viewportSize()!;
+  await page.click("body", {
+    position: { x: vp.width * 0.75, y: vp.height / 2 },
+  });
+  await page.waitForTimeout(700); // wait for transition
+}
+
+/** Tap the left half of the screen (go prev). */
+async function tapLeft(page: import("@playwright/test").Page) {
+  const vp = page.viewportSize()!;
+  await page.click("body", {
+    position: { x: vp.width * 0.25, y: vp.height / 2 },
+  });
+  await page.waitForTimeout(700);
+}
+
+/** Long-press to toggle overlay. */
+async function longPress(page: import("@playwright/test").Page) {
+  const container = page.locator(".fixed.inset-0.bg-black");
+  await container.dispatchEvent("pointerdown");
+  await page.waitForTimeout(600);
+  await container.dispatchEvent("pointerup");
+}
+
+/** Upload N sample images and return to a started slideshow page. */
+async function setupSlideshow(
+  page: import("@playwright/test").Page,
+  count: number,
+  opts: { interval?: number; order?: string; transition?: string } = {},
+) {
+  for (let i = 0; i < count; i++) {
+    await apiUploadTestImage(getSampleImage(i));
+  }
+  await setSettings({
+    slideshow_interval: opts.interval ?? 120,
+    photo_order: opts.order ?? "sequential",
+    transition_type: opts.transition ?? "crossfade",
+  });
+  await page.goto("/slideshow");
+  await expect(page.locator("img").first()).toBeVisible({ timeout: 10000 });
+}
+
+// ─── Tests ────────────────────────────────────────────────────
 
 test.describe("Slideshow", () => {
   test("shows empty state when no media", async ({ page }) => {
@@ -17,336 +83,243 @@ test.describe("Slideshow", () => {
     ).toBeVisible();
   });
 
-  test("displays photo with blur background", async ({
-    page,
-    testImagePath,
-  }) => {
-    await apiUploadTestImage(testImagePath);
-
-    await page.goto("/slideshow");
-
-    // Should display the image (both bg and fg)
-    const images = page.locator("img");
-    await expect(images.first()).toBeVisible({ timeout: 10000 });
+  test("displays photo with blur background", async ({ page }) => {
+    await setupSlideshow(page, 1);
 
     // Should have at least 2 img elements (blur bg + foreground)
+    const images = page.locator("img");
     const count = await images.count();
     expect(count).toBeGreaterThanOrEqual(2);
   });
 
-  test("keyboard space toggles pause", async ({
-    page,
-    testImagePath,
-  }) => {
-    await apiUploadTestImage(testImagePath);
+  test("navigate forward and backward through 4 photos", async ({ page }) => {
+    await setupSlideshow(page, 4, { order: "sequential" });
 
-    await page.goto("/slideshow");
-    await expect(page.locator("img").first()).toBeVisible({ timeout: 10000 });
+    // Collect all 4 slide srcs by tapping forward
+    const srcs: string[] = [];
+    srcs.push((await currentSlideSrc(page))!);
 
-    // Press space to pause
+    for (let i = 1; i < 4; i++) {
+      await tapRight(page);
+      const src = await currentSlideSrc(page);
+      srcs.push(src!);
+    }
+
+    // All 4 should be different images
+    const unique = new Set(srcs);
+    expect(unique.size).toBe(4);
+
+    // Tapping right once more wraps around to the first
+    await tapRight(page);
+    expect(await currentSlideSrc(page)).toBe(srcs[0]);
+
+    // Tap left goes back to the last
+    await tapLeft(page);
+    expect(await currentSlideSrc(page)).toBe(srcs[3]);
+
+    // Tap left 3 more times to return to the first
+    await tapLeft(page);
+    expect(await currentSlideSrc(page)).toBe(srcs[2]);
+    await tapLeft(page);
+    expect(await currentSlideSrc(page)).toBe(srcs[1]);
+    await tapLeft(page);
+    expect(await currentSlideSrc(page)).toBe(srcs[0]);
+  });
+
+  test("auto-advance moves to next slide after interval", async ({ page }) => {
+    await setupSlideshow(page, 3, { interval: 3, order: "sequential" });
+
+    const firstSrc = await currentSlideSrc(page);
+
+    // Wait for auto-advance (3s interval + buffer)
+    await page.waitForTimeout(4500);
+
+    const afterSrc = await currentSlideSrc(page);
+    expect(afterSrc).not.toBe(firstSrc);
+  });
+
+  test("pause stops auto-advance, unpause resumes", async ({ page }) => {
+    await setupSlideshow(page, 3, { interval: 3, order: "sequential" });
+
+    const firstSrc = await currentSlideSrc(page);
+
+    // Pause with spacebar
     await page.keyboard.press("Space");
     await expect(page.getByText("Paused")).toBeVisible();
 
-    // Press space again to resume
+    // Wait longer than the interval
+    await page.waitForTimeout(4500);
+
+    // Should still be on the same slide
+    expect(await currentSlideSrc(page)).toBe(firstSrc);
+
+    // Unpause
     await page.keyboard.press("Space");
     await expect(page.getByText("Paused")).not.toBeVisible();
+
+    // Wait for auto-advance
+    await page.waitForTimeout(4500);
+    expect(await currentSlideSrc(page)).not.toBe(firstSrc);
   });
 
-  test("long press toggles overlay", async ({
-    page,
-    testImagePath,
-  }) => {
-    await apiUploadTestImage(testImagePath);
+  test("overlay: long press shows it, settings work", async ({ page }) => {
+    await setupSlideshow(page, 2);
 
-    await page.goto("/slideshow");
-    await expect(page.locator("img").first()).toBeVisible({ timeout: 10000 });
-
-    const container = page.locator(".fixed.inset-0.bg-black");
-
-    // Long press to show overlay
-    await container.dispatchEvent("pointerdown");
-    await page.waitForTimeout(600);
-    await container.dispatchEvent("pointerup");
-
-    // Overlay should appear
-    await expect(page.getByText("Manage Photos")).toBeVisible({
-      timeout: 3000,
-    });
+    // Long press opens overlay
+    await longPress(page);
+    await expect(page.getByText("Manage Photos")).toBeVisible({ timeout: 3000 });
     await expect(page.getByText("Transition")).toBeVisible();
+    await expect(page.getByText("Order")).toBeVisible();
+
+    // Change transition to "none"
+    await page.getByRole("button", { name: "none" }).click();
+
+    // Verify via API
+    await page.waitForTimeout(500);
+    const settings = await (
+      await fetch(`${BACKEND_URL}/api/settings`)
+    ).json();
+    expect(settings.transition_type).toBe("none");
+
+    // Escape closes overlay (slides off-screen via translate-y-full)
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
   });
 
-  test("tap right advances to next slide", async ({
+  test("add photo mid-slideshow: current slide unchanged, new photo reachable", async ({
     page,
-    testImagePath,
   }) => {
-    // Upload 2 different images
-    await apiUploadTestImage(testImagePath);
-    await apiUploadTestImage(testImagePath);
+    await setupSlideshow(page, 2, { order: "sequential" });
 
-    // Set sequential order and long interval so auto-advance doesn't fire
-    await fetch(
-      `${process.env.BACKEND_URL || "http://backend:8000"}/api/settings`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slideshow_interval: 60,
-          photo_order: "sequential",
-        }),
-      },
-    );
+    const originalSrc = await currentSlideSrc(page);
 
-    await page.goto("/slideshow");
-    await expect(page.locator("img").first()).toBeVisible({ timeout: 10000 });
+    // Upload a 3rd photo while slideshow is running
+    await apiUploadTestImage(getSampleImage(2));
+    await page.waitForTimeout(1500); // wait for WebSocket
 
-    // Get the current image src
-    const firstSrc = await page
-      .locator("img[alt]:not([aria-hidden])")
-      .getAttribute("src");
+    // Current slide should not have changed
+    expect(await currentSlideSrc(page)).toBe(originalSrc);
 
-    // Click right half of screen to go next
-    const viewport = page.viewportSize()!;
-    await page.click("body", {
-      position: { x: viewport.width * 0.75, y: viewport.height / 2 },
-    });
-
-    // Wait for transition
-    await page.waitForTimeout(700);
-
-    // The slide should have changed (different img src or second slide visible)
-    const secondSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-    expect(secondSrc).not.toBe(firstSrc);
+    // Navigate through all 3 photos to verify the new one is accessible
+    const srcs = new Set<string>();
+    srcs.add((await currentSlideSrc(page))!);
+    for (let i = 0; i < 3; i++) {
+      await tapRight(page);
+      srcs.add((await currentSlideSrc(page))!);
+    }
+    // Should have seen 3 distinct photos (4th tap wraps back)
+    expect(srcs.size).toBe(3);
   });
 
-  test("tap left goes to previous slide", async ({
+  test("delete non-displayed photo: current slide unchanged", async ({
     page,
-    testImagePath,
   }) => {
-    // Upload 2 different images
-    await apiUploadTestImage(testImagePath);
-    await apiUploadTestImage(testImagePath);
+    await setupSlideshow(page, 4, { order: "sequential" });
 
-    await fetch(
-      `${process.env.BACKEND_URL || "http://backend:8000"}/api/settings`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slideshow_interval: 60,
-          photo_order: "sequential",
-        }),
-      },
-    );
+    const originalSrc = await currentSlideSrc(page);
 
-    await page.goto("/slideshow");
-    await expect(page.locator("img").first()).toBeVisible({ timeout: 10000 });
-
-    // Get initial image src
-    const firstSrc = await page
-      .locator("img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-
-    // Tap right to advance first
-    const viewport = page.viewportSize()!;
-    await page.click("body", {
-      position: { x: viewport.width * 0.75, y: viewport.height / 2 },
-    });
-    await page.waitForTimeout(700);
-
-    // Now tap left to go back
-    await page.click("body", {
-      position: { x: viewport.width * 0.25, y: viewport.height / 2 },
-    });
-    await page.waitForTimeout(700);
-
-    // Should be back to the first slide
-    const backSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-    expect(backSrc).toBe(firstSrc);
-  });
-
-  test("new photo appears in running slideshow via WebSocket", async ({
-    page,
-    testImagePath,
-  }) => {
-    // Start with 1 photo
-    await apiUploadTestImage(testImagePath);
-
-    // Long interval + sequential so we control navigation manually
-    await fetch(
-      `${process.env.BACKEND_URL || "http://backend:8000"}/api/settings`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slideshow_interval: 60,
-          photo_order: "sequential",
-        }),
-      },
-    );
-
-    await page.goto("/slideshow");
-    await expect(page.locator("img").first()).toBeVisible({ timeout: 10000 });
-
-    // Tap right — with only 1 photo it should wrap back to the same one
-    const viewport = page.viewportSize()!;
-    await page.click("body", {
-      position: { x: viewport.width * 0.75, y: viewport.height / 2 },
-    });
-    await page.waitForTimeout(700);
-    const beforeSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-
-    // Tap right again — still the same photo (only 1 in playlist)
-    await page.click("body", {
-      position: { x: viewport.width * 0.75, y: viewport.height / 2 },
-    });
-    await page.waitForTimeout(700);
-    const stillSameSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-    expect(stillSameSrc).toBe(beforeSrc); // only 1 photo in rotation
-
-    // Now upload a SECOND photo while the slideshow is running
-    await apiUploadTestImage(testImagePath);
-
-    // Wait for WebSocket event to be received and media list to refetch
-    await page.waitForTimeout(2000);
-
-    // After the WS update, the playlist now has 2 photos.
-    // Grab current slide, then tap right — should show a different photo.
-    const currentSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-
-    await page.click("body", {
-      position: { x: viewport.width * 0.75, y: viewport.height / 2 },
-    });
-    await page.waitForTimeout(700);
-
-    const nextSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-
-    // With 2 photos in rotation, current and next must differ
-    expect(nextSrc).not.toBe(currentSrc);
-  });
-
-  test("deleted photo disappears from running slideshow via WebSocket", async ({
-    page,
-    testImagePath,
-  }) => {
-    // Start with 2 photos
-    await apiUploadTestImage(testImagePath);
-    await apiUploadTestImage(testImagePath);
-
-    await fetch(
-      `${process.env.BACKEND_URL || "http://backend:8000"}/api/settings`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slideshow_interval: 60,
-          photo_order: "sequential",
-        }),
-      },
-    );
-
-    await page.goto("/slideshow");
-    await expect(page.locator("img").first()).toBeVisible({ timeout: 10000 });
-
-    // Note: with 2 photos, tapping right moves to the second, tapping again wraps to first
-    // Record src of current (first) photo
-    const firstSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-
-    // Tap to advance to second photo
-    const viewport = page.viewportSize()!;
-    await page.click("body", {
-      position: { x: viewport.width * 0.75, y: viewport.height / 2 },
-    });
-    await page.waitForTimeout(700);
-    const secondSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-    expect(secondSrc).not.toBe(firstSrc); // confirm 2 different photos
-
-    // Delete the SECOND photo (the one currently displayed) via API
+    // Delete a photo that is NOT currently displayed
     const media = await apiGetMedia();
-    // Find the media item whose filename matches the currently displayed src
-    const currentFilename = secondSrc!.split("/").pop()!;
+    const currentFilename = originalSrc!.split("/").pop()!;
+    const other = media.items.find((m) => m.filename !== currentFilename);
+    expect(other).toBeTruthy();
+    await apiDeleteMedia(other!.id);
+    await page.waitForTimeout(1500); // wait for WebSocket
+
+    // Current slide should be exactly the same
+    expect(await currentSlideSrc(page)).toBe(originalSrc);
+
+    // Navigation still works with 3 remaining photos
+    const srcs = new Set<string>();
+    srcs.add((await currentSlideSrc(page))!);
+    for (let i = 0; i < 3; i++) {
+      await tapRight(page);
+      srcs.add((await currentSlideSrc(page))!);
+    }
+    expect(srcs.size).toBe(3);
+  });
+
+  test("delete currently displayed photo: advances to remaining", async ({
+    page,
+  }) => {
+    await setupSlideshow(page, 3, { order: "sequential" });
+
+    const originalSrc = await currentSlideSrc(page);
+
+    // Delete the currently displayed photo
+    const media = await apiGetMedia();
+    const currentFilename = originalSrc!.split("/").pop()!;
     const toDelete = media.items.find((m) => m.filename === currentFilename);
     expect(toDelete).toBeTruthy();
     await apiDeleteMedia(toDelete!.id);
+    await page.waitForTimeout(1500);
 
-    // Wait for WebSocket event to propagate
-    await page.waitForTimeout(2000);
+    // Should now show a different photo
+    const afterSrc = await currentSlideSrc(page);
+    expect(afterSrc).not.toBe(originalSrc);
 
-    // After deletion, the slideshow should have updated.
-    // The deleted photo should no longer be displayed.
-    // With only 1 photo remaining, any navigation wraps to that same photo.
-    const afterDeleteSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-
-    // Tap right — should wrap to the same (only remaining) photo
-    await page.click("body", {
-      position: { x: viewport.width * 0.75, y: viewport.height / 2 },
-    });
-    await page.waitForTimeout(700);
-    const afterNavigateSrc = await page
-      .locator(".absolute.inset-0.z-10 img[alt]:not([aria-hidden])")
-      .getAttribute("src");
-
-    // Both should be the first photo (the only one left)
-    expect(afterDeleteSrc).toBe(firstSrc);
-    expect(afterNavigateSrc).toBe(firstSrc);
+    // Should have 2 remaining photos in rotation
+    const srcs = new Set<string>();
+    srcs.add(afterSrc!);
+    await tapRight(page);
+    srcs.add((await currentSlideSrc(page))!);
+    await tapRight(page);
+    // Wraps back
+    expect(await currentSlideSrc(page)).toBe(afterSrc);
+    expect(srcs.size).toBe(2);
   });
 
-  test("waits for video to finish before advancing", async ({
+  test("video: waits for long video to finish before advancing", async ({
     page,
     testImagePath,
     testVideoPath,
   }) => {
-    // Upload photo first, then video — video is newer so it appears first
-    // in the API response (uploaded_at desc) which is "sequential" order
+    // Upload photo first, then video
     await apiUploadTestImage(testImagePath);
     const videoResult = await apiUploadTestVideo(testVideoPath);
-
-    // Wait for video transcoding to complete before starting slideshow
     await apiWaitForProcessing(videoResult[0].id, 30000);
 
-    // Set interval to 2s (shorter than the 5s video) and sequential order
-    await fetch(
-      `${process.env.BACKEND_URL || "http://backend:8000"}/api/settings`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slideshow_interval: 2,
-          photo_order: "sequential",
-        }),
-      },
-    );
+    // Interval shorter than video (2s < 5s video)
+    await setSettings({
+      slideshow_interval: 2,
+      photo_order: "sequential",
+    });
 
     await page.goto("/slideshow");
-
-    // Video should be playing (first slide since it's newest)
     await expect(page.locator("video").first()).toBeVisible({ timeout: 10000 });
 
-    // After 3s (past the 2s interval), video should still be visible
+    // After 3s (past the 2s interval), video should still be playing
     await page.waitForTimeout(3000);
     await expect(page.locator("video").first()).toBeVisible();
 
-    // Wait for video to end (~5s total from start) + transition buffer
-    // The photo should appear after the video finishes
-    await expect(page.locator(".absolute.inset-0.z-10 img").first()).toBeVisible({
-      timeout: 10000,
-    });
+    // Eventually the video ends and photo appears
+    await expect(
+      page.locator(".absolute.inset-0.z-10 img").first(),
+    ).toBeVisible({ timeout: 10000 });
+  });
+
+  test("keyboard: arrow keys navigate, escape closes overlay", async ({
+    page,
+  }) => {
+    await setupSlideshow(page, 3, { order: "sequential" });
+
+    const firstSrc = await currentSlideSrc(page);
+
+    // ArrowRight advances
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(700);
+    const secondSrc = await currentSlideSrc(page);
+    expect(secondSrc).not.toBe(firstSrc);
+
+    // ArrowLeft goes back
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForTimeout(700);
+    expect(await currentSlideSrc(page)).toBe(firstSrc);
+
+    // Open overlay, then Escape closes it
+    await longPress(page);
+    await expect(page.getByText("Manage Photos")).toBeVisible({ timeout: 3000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
   });
 });

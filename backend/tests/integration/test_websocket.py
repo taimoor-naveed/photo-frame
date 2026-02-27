@@ -85,11 +85,16 @@ def test_websocket_video_processing_complete(client, sample_hevc_video):
         assert msg["type"] == "media_added"
         assert msg["payload"]["processing_status"] == "processing"
 
-        # Second event: media_processing_complete (after background transcode)
-        msg2 = ws.receive_json()
-        assert msg2["type"] == "media_processing_complete"
-        assert msg2["payload"]["processing_status"] == "ready"
-        assert msg2["payload"]["transcoded_filename"] is not None
+        # Progress events followed by completion
+        while True:
+            msg2 = ws.receive_json()
+            if msg2["type"] == "media_processing_progress":
+                assert 0 <= msg2["payload"]["progress"] <= 100
+                continue
+            assert msg2["type"] == "media_processing_complete"
+            assert msg2["payload"]["processing_status"] == "ready"
+            assert msg2["payload"]["transcoded_filename"] is not None
+            break
 
 
 def test_websocket_settings_changed(client):

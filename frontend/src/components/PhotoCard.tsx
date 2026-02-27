@@ -28,12 +28,35 @@ export default function PhotoCard({ media, onDelete }: PhotoCardProps) {
           />
         </div>
 
-        {/* Processing overlay — iPhone-style "downloading app" look */}
+        {/* Processing overlay — iPhone-style pie progress */}
         {isProcessing && (
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="h-8 w-8 animate-spin rounded-full border-3 border-white/30 border-t-white mb-2" />
-            <span className="text-xs font-medium text-white drop-shadow-md">
-              Processing...
+            <svg className="h-12 w-12 -rotate-90" viewBox="0 0 48 48">
+              {/* Track circle */}
+              <circle
+                cx="24" cy="24" r="20"
+                fill="none"
+                stroke="rgba(255,255,255,0.2)"
+                strokeWidth="3"
+              />
+              {/* Progress arc */}
+              <circle
+                cx="24" cy="24" r="20"
+                fill="none"
+                stroke="white"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 20}
+                strokeDashoffset={
+                  2 * Math.PI * 20 * (1 - (media.processing_progress ?? 0) / 100)
+                }
+                className="transition-[stroke-dashoffset] duration-500 ease-out"
+              />
+            </svg>
+            <span className="text-xs font-medium text-white drop-shadow-md mt-1.5">
+              {media.processing_progress != null && media.processing_progress > 0
+                ? `${media.processing_progress}%`
+                : "Processing..."}
             </span>
           </div>
         )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, originalUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
 import { useWebSocket, type WsEvent } from "../hooks/useWebSocket";
@@ -8,11 +8,18 @@ export default function SlideshowPage() {
   const [mediaList, setMediaList] = useState<Media[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  // Playlist + currentIndex in one state object — always update atomically
+  const [slide, setSlide] = useState<{ playlist: Media[]; currentIndex: number }>({
+    playlist: [],
+    currentIndex: 0,
+  });
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
+
+  const playlist = slide.playlist;
+  const currentIndex = slide.currentIndex;
 
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const advanceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -45,30 +52,53 @@ export default function SlideshowPage() {
   }, [fetchData]);
 
   // ─── Ordered playlist (only ready media) ───────────────────
+  // Playlist + currentIndex live in `slide` state so they always update atomically.
+  // Only reshuffles on initial load or when the order setting changes.
 
-  const playlist = useMemo(() => {
-    if (!mediaList.length || !settings) return [];
-    // Filter out videos that aren't ready
-    const ready = mediaList.filter(
-      (m) => m.media_type === "photo" || m.processing_status === "ready",
-    );
-    const items = [...ready];
-    if (settings.photo_order === "random") {
-      // Fisher-Yates shuffle
-      for (let i = items.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [items[i], items[j]] = [items[j], items[i]];
-      }
-    } else if (settings.photo_order === "newest") {
-      items.sort(
-        (a, b) =>
-          new Date(b.uploaded_at).getTime() -
-          new Date(a.uploaded_at).getTime(),
+  const buildPlaylist = useCallback(
+    (items: Media[], order: string) => {
+      const ready = items.filter(
+        (m) => m.media_type === "photo" || m.processing_status === "ready",
       );
+      const sorted = [...ready];
+      if (order === "random") {
+        for (let i = sorted.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [sorted[i], sorted[j]] = [sorted[j], sorted[i]];
+        }
+      } else if (order === "newest") {
+        sorted.sort(
+          (a, b) =>
+            new Date(b.uploaded_at).getTime() -
+            new Date(a.uploaded_at).getTime(),
+        );
+      }
+      return sorted;
+    },
+    [],
+  );
+
+  // Build playlist on initial data load
+  const initialBuildDone = useRef(false);
+  useEffect(() => {
+    if (mediaList.length && settings && !initialBuildDone.current) {
+      initialBuildDone.current = true;
+      setSlide({ playlist: buildPlaylist(mediaList, settings.photo_order), currentIndex: 0 });
     }
-    // 'sequential' keeps original order (by ID)
-    return items;
-  }, [mediaList, settings]);
+  }, [mediaList, settings, buildPlaylist]);
+
+  // Rebuild playlist when order setting changes
+  const lastOrder = useRef<string | null>(null);
+  useEffect(() => {
+    if (!settings || !initialBuildDone.current) return;
+    if (lastOrder.current !== null && lastOrder.current !== settings.photo_order) {
+      setSlide((prev) => ({
+        playlist: buildPlaylist(mediaList, settings.photo_order),
+        currentIndex: Math.min(prev.currentIndex, mediaList.length - 1),
+      }));
+    }
+    lastOrder.current = settings.photo_order;
+  }, [settings?.photo_order, mediaList, settings, buildPlaylist]);
 
   const currentMedia = playlist[currentIndex] ?? null;
   const prevMedia =
@@ -81,7 +111,7 @@ export default function SlideshowPage() {
       if (!playlist.length) return;
       waitingForVideo.current = false;
       setPrevIndex(currentIndex);
-      setCurrentIndex(next);
+      setSlide((prev) => ({ ...prev, currentIndex: next }));
       setTransitioning(true);
       // Double rAF: first ensures the DOM renders with transitioning=true (opacity 0),
       // second triggers the CSS transition to opacity 1
@@ -111,15 +141,14 @@ export default function SlideshowPage() {
   useEffect(() => {
     clearTimeout(advanceTimer.current);
     waitingForVideo.current = false;
-    if (paused || !settings || !playlist.length) return;
+    if (paused || !settings || !currentMedia) return;
 
-    const media = playlist[currentIndex];
     const interval = settings.slideshow_interval;
 
     if (
-      media?.media_type === "video" &&
-      media.duration &&
-      media.duration > interval
+      currentMedia.media_type === "video" &&
+      currentMedia.duration &&
+      currentMedia.duration > interval
     ) {
       // Video is longer than interval — wait for it to finish
       waitingForVideo.current = true;
@@ -128,13 +157,18 @@ export default function SlideshowPage() {
 
     advanceTimer.current = setTimeout(goNext, interval * 1000);
     return () => clearTimeout(advanceTimer.current);
-  }, [currentIndex, paused, settings, playlist, goNext]);
+  }, [currentMedia?.id, paused, settings, goNext]);
 
   // ─── Video ended handler ─────────────────────────────────────
 
   const handleVideoEnded = useCallback(() => {
     if (waitingForVideo.current) {
       goNext();
+    } else {
+      // Video ended within interval — show first frame while waiting for timer
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+      }
     }
   }, [goNext]);
 
@@ -174,14 +208,35 @@ export default function SlideshowPage() {
 
   const handleWsEvent = useCallback(
     (event: WsEvent) => {
-      if (event.type === "media_added" || event.type === "media_deleted") {
-        // Refetch media list
-        api.media.list(1, 1000).then((res) => {
-          setMediaList(res.items);
-          // If current index is out of bounds, reset
-          if (currentIndex >= res.items.length) {
-            setCurrentIndex(0);
+      if (event.type === "media_added") {
+        const added = event.payload as unknown as Media;
+        setMediaList((prev) => [added, ...prev]);
+        // Add to playlist at end so it doesn't disrupt current position
+        const isReady =
+          added.media_type === "photo" || added.processing_status === "ready";
+        if (isReady) {
+          setSlide((prev) => ({
+            ...prev,
+            playlist: [...prev.playlist, added],
+          }));
+        }
+      } else if (event.type === "media_deleted") {
+        const { id } = event.payload as { id: number };
+        setMediaList((prev) => prev.filter((m) => m.id !== id));
+        // Atomically update playlist + currentIndex to avoid flash
+        setSlide((prev) => {
+          const idx = prev.playlist.findIndex((m) => m.id === id);
+          if (idx === -1) return prev; // not in playlist, no change
+          const newPlaylist = prev.playlist.filter((m) => m.id !== id);
+          let newIndex = prev.currentIndex;
+          if (newPlaylist.length === 0) {
+            newIndex = 0;
+          } else if (idx < prev.currentIndex) {
+            newIndex = prev.currentIndex - 1;
+          } else if (idx === prev.currentIndex) {
+            newIndex = prev.currentIndex % newPlaylist.length;
           }
+          return { playlist: newPlaylist, currentIndex: newIndex };
         });
       } else if (event.type === "media_processing_complete") {
         // Update media item in-place — video is now ready for slideshow
@@ -189,11 +244,23 @@ export default function SlideshowPage() {
         setMediaList((prev) =>
           prev.map((m) => (m.id === updated.id ? updated : m)),
         );
+        // Add to playlist if it was processing before (now ready)
+        setSlide((prev) => {
+          if (prev.playlist.some((m) => m.id === updated.id)) {
+            return {
+              ...prev,
+              playlist: prev.playlist.map((m) =>
+                m.id === updated.id ? updated : m,
+              ),
+            };
+          }
+          return { ...prev, playlist: [...prev.playlist, updated] };
+        });
       } else if (event.type === "settings_changed") {
         setSettings(event.payload as unknown as Settings);
       }
     },
-    [currentIndex],
+    [],
   );
 
   useWebSocket({ onEvent: handleWsEvent });
