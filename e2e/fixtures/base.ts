@@ -1,6 +1,8 @@
 import { test as base, expect } from "@playwright/test";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
+import { execSync } from "child_process";
 
 // ─── API Helpers ─────────────────────────────────────────────
 // Use backend directly for server-side API calls (Vite proxy is browser-only)
@@ -12,6 +14,8 @@ export interface MediaItem {
   original_name: string;
   media_type: "photo" | "video";
   thumb_filename: string;
+  processing_status: "processing" | "ready" | "error";
+  content_hash: string | null;
 }
 
 export async function apiDeleteAllMedia(): Promise<void> {
@@ -42,17 +46,33 @@ export async function apiGetMedia(): Promise<{
   return resp.json();
 }
 
+export async function apiDeleteMedia(id: number): Promise<void> {
+  const resp = await fetch(`${BACKEND_URL}/api/media/${id}`, {
+    method: "DELETE",
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Delete failed: ${resp.status} ${text}`);
+  }
+}
+
 export async function apiGetSettings() {
   const resp = await fetch(`${BACKEND_URL}/api/settings`);
   return resp.json();
 }
 
-export async function apiUploadTestImage(imagePath: string): Promise<void> {
+export async function apiUploadTestImage(imagePath: string): Promise<MediaItem[]> {
   const buf = fs.readFileSync(imagePath);
   const ext = path.extname(imagePath).slice(1);
   const mime = ext === "png" ? "image/png" : "image/jpeg";
+  // Append random bytes to make each upload unique (avoids content_hash dedup)
+  const uniqueBuf = Buffer.concat([buf, crypto.randomBytes(8)]);
   const form = new FormData();
-  form.append("files", new Blob([buf], { type: mime }), `test.${ext}`);
+  form.append(
+    "files",
+    new Blob([uniqueBuf], { type: mime }),
+    `test-${crypto.randomUUID().slice(0, 8)}.${ext}`,
+  );
   const resp = await fetch(`${BACKEND_URL}/api/media`, {
     method: "POST",
     body: form,
@@ -61,6 +81,46 @@ export async function apiUploadTestImage(imagePath: string): Promise<void> {
     const text = await resp.text();
     throw new Error(`Upload failed: ${resp.status} ${text}`);
   }
+  return resp.json();
+}
+
+export async function apiUploadTestVideo(
+  videoPath: string,
+): Promise<MediaItem[]> {
+  const buf = fs.readFileSync(videoPath);
+  const ext = path.extname(videoPath).slice(1);
+  const mime = ext === "webm" ? "video/webm" : "video/mp4";
+  const form = new FormData();
+  form.append(
+    "files",
+    new Blob([buf], { type: mime }),
+    `test-${crypto.randomUUID().slice(0, 8)}.${ext}`,
+  );
+  const resp = await fetch(`${BACKEND_URL}/api/media`, {
+    method: "POST",
+    body: form,
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Video upload failed: ${resp.status} ${text}`);
+  }
+  return resp.json();
+}
+
+export async function apiWaitForProcessing(
+  mediaId: number,
+  timeoutMs = 30000,
+): Promise<MediaItem> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const resp = await fetch(`${BACKEND_URL}/api/media/${mediaId}`);
+    const item: MediaItem = await resp.json();
+    if (item.processing_status !== "processing") {
+      return item;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`Media ${mediaId} still processing after ${timeoutMs}ms`);
 }
 
 // ─── Test Image Generation ───────────────────────────────────
@@ -121,10 +181,26 @@ function createPngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, typeBuffer, data, crcBuffer]);
 }
 
+// ─── Test Video Generation ───────────────────────────────────
+
+function generateTestVideo(durationSec: number): string {
+  const dir = path.join(__dirname, "test-videos");
+  const videoPath = path.join(dir, `test-${durationSec}s.webm`);
+  if (!fs.existsSync(videoPath)) {
+    fs.mkdirSync(dir, { recursive: true });
+    execSync(
+      `ffmpeg -f lavfi -i color=c=blue:s=320x240:d=${durationSec} -c:v libvpx -b:v 200k -t ${durationSec} "${videoPath}" -y`,
+      { stdio: "pipe" },
+    );
+  }
+  return videoPath;
+}
+
 // ─── Custom Test Fixture ─────────────────────────────────────
 
 type TestFixtures = {
   testImagePath: string;
+  testVideoPath: string;
   cleanState: void;
 };
 
@@ -137,6 +213,11 @@ export const test = base.extend<TestFixtures>({
       fs.writeFileSync(imgPath, generateTestPng());
     }
     await use(imgPath);
+  },
+
+  testVideoPath: async ({}, use) => {
+    const videoPath = generateTestVideo(5);
+    await use(videoPath);
   },
 
   cleanState: [

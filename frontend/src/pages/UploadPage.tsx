@@ -7,7 +7,7 @@ type UploadStatus = "idle" | "uploading" | "done" | "error";
 const ACCEPTED = ".jpg,.jpeg,.png,.webp,.heic,.mp4,.mov,.webm";
 
 export default function UploadPage() {
-  const { uploadFiles } = usePhotos();
+  const { uploadFiles, uploadProgress } = usePhotos();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [dragOver, setDragOver] = useState(false);
@@ -46,6 +46,9 @@ export default function UploadPage() {
     setStatus("idle");
     setUploadedCount(0);
     setErrorMsg("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   return (
@@ -92,12 +95,24 @@ export default function UploadPage() {
           onDrop={onDrop}
         >
           {status === "uploading" ? (
-            <>
-              <div className="inline-flex h-12 w-12 items-center justify-center mb-4">
+            <div className="space-y-4">
+              <div className="inline-flex h-12 w-12 items-center justify-center mb-2">
                 <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-gray-900" />
               </div>
-              <p className="text-gray-600">Uploading...</p>
-            </>
+              <p className="text-gray-600 font-medium">
+                Uploading{uploadProgress !== null ? ` — ${uploadProgress}%` : "..."}
+              </p>
+              {uploadProgress !== null && (
+                <div className="mx-auto max-w-xs">
+                  <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gray-900 transition-all duration-300 ease-out"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <>
               <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -123,6 +138,8 @@ export default function UploadPage() {
                 className="hidden"
                 onChange={(e) => {
                   if (e.target.files) handleFiles(e.target.files);
+                  // Clear value so re-selecting the same file triggers onChange
+                  e.currentTarget.value = "";
                 }}
               />
               {status === "error" && (

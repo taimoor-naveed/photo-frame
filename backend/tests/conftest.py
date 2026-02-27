@@ -70,6 +70,12 @@ def client(tmp_path, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
 
+    # Also patch SessionLocal so background threads use the test DB
+    import app.database as database_module
+    monkeypatch.setattr(database_module, "SessionLocal", TestSession)
+    import app.routers.media as media_module
+    monkeypatch.setattr(media_module, "SessionLocal", TestSession)
+
     with TestClient(app) as c:
         yield c
 

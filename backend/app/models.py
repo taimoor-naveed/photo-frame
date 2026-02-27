@@ -20,6 +20,10 @@ class Media(Base):
     codec: Mapped[str | None] = mapped_column(String, nullable=True)  # video codec
     thumb_filename: Mapped[str] = mapped_column(String, nullable=False)
     transcoded_filename: Mapped[str | None] = mapped_column(String, nullable=True)
+    processing_status: Mapped[str] = mapped_column(
+        String, nullable=False, default="ready"
+    )  # "processing" | "ready" | "error"
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )

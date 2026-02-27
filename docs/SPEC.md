@@ -20,7 +20,10 @@
 | `PUT`  | `/api/settings`  | Update settings        |
 
 ### WebSocket
-`ws://host/ws` — JSON events: `media_added`, `media_deleted`, `settings_changed`
+`ws://host/ws` — JSON events with format `{"type": "<event>", "payload": {...}}`:
+- `media_added` — payload: full media object
+- `media_deleted` — payload: `{"id": <media_id>}`
+- `settings_changed` — payload: full settings object
 
 ### Health
 `GET /api/health` → `{"status": "ok"}`
@@ -98,20 +101,27 @@ Works for both `<img>` and `<video>`.
 ### Video Slides (Motion Pictures)
 - Slide appears → `<video autoplay muted>` plays immediately
 - On `ended`: video pauses on last frame (natural behavior)
-- Slide timer starts when slide appears, NOT when video ends
-- After `slideshow_interval` → crossfade to next slide
-- If interval < video duration: video plays until timeout, then advances
+- If video duration ≤ interval: timer advances after `slideshow_interval` seconds (video freezes on last frame until timer fires)
+- If video duration > interval: slideshow waits for video to finish, then advances on the `ended` event
 
-### Touch Gestures
-| Gesture     | Action                     |
-|-------------|----------------------------|
-| Swipe left  | Next slide                 |
-| Swipe right | Previous slide             |
-| Single tap  | Toggle settings overlay    |
-| Long press  | Pause/resume auto-advance  |
+### Touch / Click Interaction
+| Action               | Result                    |
+|----------------------|---------------------------|
+| Tap right half       | Next slide                |
+| Tap left half        | Previous slide            |
+| Long press (~500ms)  | Toggle settings overlay   |
+| Tap outside overlay  | Dismiss settings overlay  |
+| Arrow keys (L/R)     | Previous / Next slide     |
+| Space                | Pause / resume            |
+| Escape               | Dismiss overlay           |
+
+### Transitions
+- **Crossfade**: new slide fades in (opacity 0→1) over previous via double-rAF technique
+- **Slide**: new slide slides in from right, previous slides out left
+- **None**: instant swap
 
 ### Settings Overlay
-Frosted glass bottom sheet. Controls: interval slider, transition toggle, order toggle, pause/play, "Manage Photos" link. Auto-hides after 5s.
+Frosted glass bottom sheet. Controls: interval slider, transition toggle, order toggle, pause/play, "Manage Photos" link. Auto-hides after 5s of inactivity. Any interaction inside the overlay resets the timer. Clicking/tapping outside the overlay dismisses it. Pointer events inside the overlay do not propagate to the slideshow tap zones.
 
 ## UX / Design Principles
 

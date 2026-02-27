@@ -1,5 +1,15 @@
 import io
 
+from PIL import Image
+
+
+def _make_jpeg(color: str) -> bytes:
+    """Generate a unique JPEG with the given color."""
+    img = Image.new("RGB", (100, 100), color=color)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG")
+    return buf.getvalue()
+
 
 def test_upload_photo(client, sample_jpeg):
     response = client.post(
@@ -14,6 +24,8 @@ def test_upload_photo(client, sample_jpeg):
     assert data[0]["height"] == 600
     assert data[0]["original_name"] == "photo.jpg"
     assert data[0]["thumb_filename"].endswith(".jpg")
+    assert data[0]["processing_status"] == "ready"
+    assert data[0]["content_hash"] is not None
 
 
 def test_upload_png(client, sample_png):
@@ -38,6 +50,7 @@ def test_upload_video(client, sample_video):
     assert data[0]["media_type"] == "video"
     assert data[0]["duration"] > 0
     assert data[0]["codec"] == "h264"
+    assert data[0]["processing_status"] == "ready"  # h264 is browser-compatible, no transcode
 
 
 def test_upload_multiple_files(client, sample_jpeg, sample_png):
@@ -51,6 +64,24 @@ def test_upload_multiple_files(client, sample_jpeg, sample_png):
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
+
+
+def test_upload_duplicate_detection(client, sample_jpeg):
+    """Uploading the same file twice returns the existing media instead of creating a duplicate."""
+    r1 = client.post(
+        "/api/media",
+        files=[("files", ("photo.jpg", io.BytesIO(sample_jpeg), "image/jpeg"))],
+    )
+    r2 = client.post(
+        "/api/media",
+        files=[("files", ("photo.jpg", io.BytesIO(sample_jpeg), "image/jpeg"))],
+    )
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    # Same media returned both times
+    assert r1.json()[0]["id"] == r2.json()[0]["id"]
+    # Only 1 item in DB
+    assert client.get("/api/media").json()["total"] == 1
 
 
 def test_upload_invalid_extension(client):
@@ -83,10 +114,12 @@ def test_list_media_with_items(client, sample_jpeg, sample_png):
     assert data["items"][0]["original_name"] == "b.png"
 
 
-def test_list_media_pagination(client, sample_jpeg):
-    # Upload 3 photos
-    for i in range(3):
-        client.post("/api/media", files=[("files", (f"p{i}.jpg", io.BytesIO(sample_jpeg), "image/jpeg"))])
+def test_list_media_pagination(client):
+    # Upload 3 unique photos (duplicate detection would collapse identical ones)
+    colors = ["red", "green", "blue"]
+    for i, color in enumerate(colors):
+        data = _make_jpeg(color)
+        client.post("/api/media", files=[("files", (f"p{i}.jpg", io.BytesIO(data), "image/jpeg"))])
 
     # Page 1, per_page 2
     response = client.get("/api/media?page=1&per_page=2")

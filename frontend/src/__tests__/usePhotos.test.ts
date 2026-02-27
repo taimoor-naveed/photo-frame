@@ -16,6 +16,8 @@ const mockList: MediaList = {
       codec: null,
       thumb_filename: "thumb_abc.jpg",
       transcoded_filename: null,
+      processing_status: "ready" as const,
+      content_hash: "abc123",
       uploaded_at: "2026-01-01T00:00:00",
     },
   ],
@@ -23,6 +25,30 @@ const mockList: MediaList = {
   page: 1,
   per_page: 50,
 };
+
+// Mock WebSocket globally (usePhotos now uses useWebSocket internally)
+class MockWS {
+  onopen: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: (() => void) | null = null;
+  readyState = 0;
+  close = vi.fn();
+  constructor() {
+    setTimeout(() => this.onopen?.(), 0);
+  }
+}
+
+const OriginalWebSocket = globalThis.WebSocket;
+
+beforeAll(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  globalThis.WebSocket = MockWS as any;
+});
+
+afterAll(() => {
+  globalThis.WebSocket = OriginalWebSocket;
+});
 
 beforeEach(() => {
   vi.restoreAllMocks();

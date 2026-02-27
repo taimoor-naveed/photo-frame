@@ -1,23 +1,74 @@
 import asyncio
+import hashlib
+import logging
+import threading
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app import config
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import Media
 from app.schemas import MediaListOut, MediaOut
 from app.services.image import process_image
-from app.services.video import process_video
+from app.services.video import needs_transcode, save_video_original, transcode_to_h264
 from app.websocket import manager
 
 router = APIRouter(prefix="/api/media", tags=["media"])
+logger = logging.getLogger(__name__)
+
+
+def _broadcast(loop: asyncio.AbstractEventLoop, message: dict) -> None:
+    """Schedule a WebSocket broadcast on the given event loop."""
+    asyncio.run_coroutine_threadsafe(manager.broadcast(message), loop)
+
+
+def _transcode_in_background(
+    media_id: int,
+    original_path: Path,
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    """Run ffmpeg transcode in a background thread, then update DB + notify clients."""
+    try:
+        transcoded_filename = f"{uuid.uuid4()}.mp4"
+        transcode_to_h264(original_path, transcoded_filename)
+
+        db = SessionLocal()
+        try:
+            media = db.query(Media).filter(Media.id == media_id).first()
+            if media:
+                media.processing_status = "ready"
+                media.transcoded_filename = transcoded_filename
+                db.commit()
+                db.refresh(media)
+                _broadcast(loop, {
+                    "type": "media_processing_complete",
+                    "payload": MediaOut.model_validate(media).model_dump(mode="json"),
+                })
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Transcode failed for media_id=%s", media_id)
+        db = SessionLocal()
+        try:
+            media = db.query(Media).filter(Media.id == media_id).first()
+            if media:
+                media.processing_status = "error"
+                db.commit()
+                _broadcast(loop, {
+                    "type": "media_processing_error",
+                    "payload": {"id": media_id},
+                })
+        finally:
+            db.close()
 
 
 @router.post("", response_model=list[MediaOut])
 async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
-    results = []
+    # ─── Phase 0: Read all files and validate upfront ─────────
+    file_data: list[tuple[str, str, bytes]] = []  # (original_name, ext, content)
     for file in files:
         ext = Path(file.filename or "").suffix.lower()
         if ext not in config.ALLOWED_IMAGE_EXTENSIONS and ext not in config.ALLOWED_VIDEO_EXTENSIONS:
@@ -27,22 +78,48 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
         if len(content) > config.MAX_UPLOAD_SIZE:
             raise HTTPException(400, f"File too large: {len(content)} bytes (max {config.MAX_UPLOAD_SIZE})")
 
+        file_data.append((file.filename or f"upload{ext}", ext, content))
+
+    # ─── Phase 1: Process each file ──────────────────────────
+    results = []
+    loop = asyncio.get_running_loop()
+
+    for original_name, ext, content in file_data:
+        # Duplicate detection via content hash
+        content_hash = hashlib.sha256(content).hexdigest()
+        existing = db.query(Media).filter(Media.content_hash == content_hash).first()
+        if existing:
+            results.append(existing)
+            continue
+
         if ext in config.ALLOWED_IMAGE_EXTENSIONS:
-            info = process_image(content, file.filename or "upload.jpg")
+            info = process_image(content, original_name)
             media = Media(
                 filename=info["filename"],
-                original_name=file.filename or "upload.jpg",
+                original_name=original_name,
                 media_type="photo",
                 width=info["width"],
                 height=info["height"],
                 file_size=info["file_size"],
                 thumb_filename=info["thumb_filename"],
+                processing_status="ready",
+                content_hash=content_hash,
+            )
+            db.add(media)
+            db.commit()
+            db.refresh(media)
+            results.append(media)
+
+            asyncio.create_task(
+                manager.broadcast({"type": "media_added", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
             )
         else:
-            info = process_video(content, file.filename or "upload.mp4")
+            # Video: save + thumbnail (fast), then transcode in background if needed
+            info = save_video_original(content, original_name)
+            require_transcode = needs_transcode(info["codec"])
             media = Media(
                 filename=info["filename"],
-                original_name=file.filename or "upload.mp4",
+                original_name=original_name,
                 media_type="video",
                 width=info["width"],
                 height=info["height"],
@@ -50,17 +127,27 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 duration=info["duration"],
                 codec=info["codec"],
                 thumb_filename=info["thumb_filename"],
-                transcoded_filename=info["transcoded_filename"],
+                processing_status="processing" if require_transcode else "ready",
+                content_hash=content_hash,
+            )
+            db.add(media)
+            db.commit()
+            db.refresh(media)
+            results.append(media)
+
+            asyncio.create_task(
+                manager.broadcast({"type": "media_added", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
             )
 
-        db.add(media)
-        db.commit()
-        db.refresh(media)
-        results.append(media)
-
-        asyncio.create_task(
-            manager.broadcast({"event": "media_added", "data": MediaOut.model_validate(media).model_dump(mode="json")})
-        )
+            if require_transcode:
+                # Kick off transcode in background thread
+                original_path = config.ORIGINALS_DIR / info["filename"]
+                thread = threading.Thread(
+                    target=_transcode_in_background,
+                    args=(media.id, original_path, loop),
+                    daemon=True,
+                )
+                thread.start()
 
     return results
 
@@ -113,7 +200,7 @@ async def delete_media(media_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     asyncio.create_task(
-        manager.broadcast({"event": "media_deleted", "data": {"id": media_id}})
+        manager.broadcast({"type": "media_deleted", "payload": {"id": media_id}})
     )
 
     return {"ok": True}

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, originalUrl, type Media, type Settings } from "../api/client";
+import { api, originalUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
 import { useWebSocket, type WsEvent } from "../hooks/useWebSocket";
-import { useGestures } from "../hooks/useGestures";
 import SlideshowOverlay from "../components/SlideshowOverlay";
 
 export default function SlideshowPage() {
@@ -11,6 +10,7 @@ export default function SlideshowPage() {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
   const [paused, setPaused] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
 
@@ -18,6 +18,9 @@ export default function SlideshowPage() {
   const advanceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   const prevVideoRef = useRef<HTMLVideoElement>(null);
+  const waitingForVideo = useRef(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const didLongPress = useRef(false);
 
   // ─── Data fetching ───────────────────────────────────────────
 
@@ -41,11 +44,15 @@ export default function SlideshowPage() {
     fetchData();
   }, [fetchData]);
 
-  // ─── Ordered playlist ────────────────────────────────────────
+  // ─── Ordered playlist (only ready media) ───────────────────
 
   const playlist = useMemo(() => {
     if (!mediaList.length || !settings) return [];
-    const items = [...mediaList];
+    // Filter out videos that aren't ready
+    const ready = mediaList.filter(
+      (m) => m.media_type === "photo" || m.processing_status === "ready",
+    );
+    const items = [...ready];
     if (settings.photo_order === "random") {
       // Fisher-Yates shuffle
       for (let i = items.length - 1; i > 0; i--) {
@@ -72,9 +79,18 @@ export default function SlideshowPage() {
   const goToSlide = useCallback(
     (next: number) => {
       if (!playlist.length) return;
+      waitingForVideo.current = false;
       setPrevIndex(currentIndex);
       setCurrentIndex(next);
-      // Clear previous slide after transition
+      setTransitioning(true);
+      // Double rAF: first ensures the DOM renders with transitioning=true (opacity 0),
+      // second triggers the CSS transition to opacity 1
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTransitioning(false);
+        });
+      });
+      // Clear previous slide after transition completes
       setTimeout(() => setPrevIndex(null), 600);
     },
     [currentIndex, playlist.length],
@@ -94,31 +110,56 @@ export default function SlideshowPage() {
 
   useEffect(() => {
     clearTimeout(advanceTimer.current);
+    waitingForVideo.current = false;
     if (paused || !settings || !playlist.length) return;
 
-    advanceTimer.current = setTimeout(
-      goNext,
-      settings.slideshow_interval * 1000,
-    );
+    const media = playlist[currentIndex];
+    const interval = settings.slideshow_interval;
+
+    if (
+      media?.media_type === "video" &&
+      media.duration &&
+      media.duration > interval
+    ) {
+      // Video is longer than interval — wait for it to finish
+      waitingForVideo.current = true;
+      return;
+    }
+
+    advanceTimer.current = setTimeout(goNext, interval * 1000);
     return () => clearTimeout(advanceTimer.current);
-  }, [currentIndex, paused, settings, playlist.length, goNext]);
+  }, [currentIndex, paused, settings, playlist, goNext]);
+
+  // ─── Video ended handler ─────────────────────────────────────
+
+  const handleVideoEnded = useCallback(() => {
+    if (waitingForVideo.current) {
+      goNext();
+    }
+  }, [goNext]);
+
+  // ─── Video error handler — never get stuck ──────────────────
+
+  const handleVideoError = useCallback(() => {
+    goNext();
+  }, [goNext]);
 
   // ─── Overlay auto-hide ──────────────────────────────────────
 
-  useEffect(() => {
-    if (!overlayVisible) return;
+  const resetHideTimer = useCallback(() => {
     clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => setOverlayVisible(false), 5000);
-    return () => clearTimeout(hideTimer.current);
-  }, [overlayVisible, settings]);
+  }, []);
 
-  // Reset hide timer when settings change (user is interacting)
+  useEffect(() => {
+    if (!overlayVisible) return;
+    resetHideTimer();
+    return () => clearTimeout(hideTimer.current);
+  }, [overlayVisible, resetHideTimer]);
+
   const handleUpdateSettings = useCallback(
     async (update: Parameters<typeof api.settings.update>[0]) => {
-      // Reset the auto-hide timer
-      clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(() => setOverlayVisible(false), 5000);
-
+      resetHideTimer();
       try {
         const updated = await api.settings.update(update);
         setSettings(updated);
@@ -126,7 +167,7 @@ export default function SlideshowPage() {
         // Silently fail — overlay will show stale value
       }
     },
-    [],
+    [resetHideTimer],
   );
 
   // ─── WebSocket ───────────────────────────────────────────────
@@ -142,6 +183,12 @@ export default function SlideshowPage() {
             setCurrentIndex(0);
           }
         });
+      } else if (event.type === "media_processing_complete") {
+        // Update media item in-place — video is now ready for slideshow
+        const updated = event.payload as unknown as Media;
+        setMediaList((prev) =>
+          prev.map((m) => (m.id === updated.id ? updated : m)),
+        );
       } else if (event.type === "settings_changed") {
         setSettings(event.payload as unknown as Settings);
       }
@@ -151,16 +198,38 @@ export default function SlideshowPage() {
 
   useWebSocket({ onEvent: handleWsEvent });
 
-  // ─── Gestures ────────────────────────────────────────────────
+  // ─── Tap zone interaction ──────────────────────────────────
 
-  const { bind } = useGestures({
-    onSwipeLeft: goNext,
-    onSwipeRight: goPrev,
-    onTap: () => setOverlayVisible((v) => !v),
-    onLongPress: () => setPaused((p) => !p),
-  });
+  const handlePointerDown = useCallback(() => {
+    didLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      didLongPress.current = true;
+      setOverlayVisible((v) => !v);
+    }, 500);
+  }, []);
 
-  // Gesture bind returns handler props from useDrag
+  const handlePointerUp = useCallback(() => {
+    clearTimeout(longPressTimer.current);
+  }, []);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (didLongPress.current) return;
+      if (overlayVisible) {
+        // Click outside overlay dismisses it
+        setOverlayVisible(false);
+        return;
+      }
+
+      const midX = window.innerWidth / 2;
+      if (e.clientX >= midX) {
+        goNext();
+      } else {
+        goPrev();
+      }
+    },
+    [goNext, goPrev, overlayVisible],
+  );
 
   // ─── Keyboard support ────────────────────────────────────────
 
@@ -215,34 +284,67 @@ export default function SlideshowPage() {
     );
   }
 
-  const transitionClass =
-    settings?.transition_type === "crossfade"
-      ? "transition-opacity duration-500 ease-in-out"
-      : settings?.transition_type === "slide"
-        ? "transition-all duration-500 ease-in-out"
-        : "";
+  const transitionStyle = settings?.transition_type ?? "none";
 
   return (
     <div
-      {...bind()}
-      className="fixed inset-0 bg-black select-none touch-none overflow-hidden"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onClick={handleClick}
+      className="fixed inset-0 bg-black select-none overflow-hidden"
       style={{ cursor: overlayVisible ? "auto" : "none" }}
     >
-      {/* Previous slide (fading out) */}
+      {/* Previous slide (fading/sliding out) */}
       {prevMedia && (
-        <div className="absolute inset-0 z-0">
+        <div
+          className={`absolute inset-0 z-0 ${
+            transitionStyle === "slide"
+              ? "transition-transform duration-500 ease-in-out"
+              : ""
+          }`}
+          style={{
+            transform:
+              transitionStyle === "slide"
+                ? transitioning
+                  ? "translateX(0)"
+                  : "translateX(-100%)"
+                : undefined,
+          }}
+        >
           <Slide media={prevMedia} videoRef={prevVideoRef} />
         </div>
       )}
 
       {/* Current slide */}
       <div
-        className={`absolute inset-0 z-10 ${transitionClass}`}
+        className={`absolute inset-0 z-10 ${
+          transitionStyle === "crossfade"
+            ? "transition-opacity duration-500 ease-in-out"
+            : transitionStyle === "slide"
+              ? "transition-transform duration-500 ease-in-out"
+              : ""
+        }`}
         style={{
-          opacity: prevMedia && settings?.transition_type === "crossfade" ? 1 : undefined,
+          opacity:
+            transitionStyle === "crossfade"
+              ? transitioning
+                ? 0
+                : 1
+              : undefined,
+          transform:
+            transitionStyle === "slide"
+              ? transitioning
+                ? "translateX(100%)"
+                : "translateX(0)"
+              : undefined,
         }}
       >
-        <Slide media={currentMedia!} videoRef={videoRef} />
+        <Slide
+          media={currentMedia!}
+          videoRef={videoRef}
+          onEnded={handleVideoEnded}
+          onError={handleVideoError}
+        />
       </div>
 
       {/* Pause indicator */}
@@ -260,6 +362,7 @@ export default function SlideshowPage() {
           paused={paused}
           onTogglePause={() => setPaused((p) => !p)}
           onUpdateSettings={handleUpdateSettings}
+          onInteraction={resetHideTimer}
         />
       )}
     </div>
@@ -271,20 +374,21 @@ export default function SlideshowPage() {
 interface SlideProps {
   media: Media;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
+  onEnded?: () => void;
+  onError?: () => void;
 }
 
-function Slide({ media, videoRef }: SlideProps) {
+function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
   const src = originalUrl(media);
 
   if (media.media_type === "video") {
     return (
       <>
-        {/* Blur background */}
-        <video
-          src={src}
+        {/* Blur background — use thumbnail image instead of second <video> to halve resource usage */}
+        <img
+          src={thumbnailUrl(media)}
           className="absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]"
-          muted
-          autoPlay
+          alt=""
           aria-hidden="true"
         />
         {/* Foreground video */}
@@ -294,6 +398,8 @@ function Slide({ media, videoRef }: SlideProps) {
           className="absolute inset-0 w-full h-full object-contain"
           muted
           autoPlay
+          onEnded={onEnded}
+          onError={onError}
         />
       </>
     );
