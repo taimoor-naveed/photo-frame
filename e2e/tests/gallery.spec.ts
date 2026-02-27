@@ -40,19 +40,19 @@ test.describe("Gallery", () => {
     await apiUploadTestImage(testImagePath);
 
     await page.goto("/");
-    await expect(page.locator("img[alt]").first()).toBeVisible({
+    await expect(page.locator("[data-testid='photo-card']").first()).toBeVisible({
       timeout: 10000,
     });
 
-    // Hover and delete
-    await page.locator("[data-testid='photo-card']").first().hover();
-    await page.getByLabel(/Delete/).first().click();
+    // Click card to open modal
+    await page.locator("[data-testid='photo-card']").first().click();
+    await expect(page.getByTestId("media-detail-modal")).toBeVisible();
 
-    // Confirm
+    // Delete from modal
+    const modal = page.getByTestId("media-detail-modal");
+    await modal.getByLabel("Delete", { exact: true }).click();
     await expect(page.getByText("Delete media")).toBeVisible();
-    await page
-      .getByRole("button", { name: "Delete", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Delete", exact: true }).last().click();
 
     // Should show empty state
     await expect(page.getByText("No photos yet")).toBeVisible({

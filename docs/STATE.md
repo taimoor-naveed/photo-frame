@@ -8,10 +8,10 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 43 | All passing |
-| Frontend (vitest) | 57 | All passing |
-| E2E (playwright) | 57 (3 skipped) | All passing |
-| **Total** | **~157** | **Green** |
+| Backend (pytest) | 44 | All passing |
+| Frontend (vitest) | 72 | All passing |
+| E2E (playwright) | 67 (3 skipped) | All passing |
+| **Total** | **~183** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-only / desktop-only).
 
@@ -30,7 +30,8 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 - **File serving**: originals, thumbnails, transcoded videos via FileResponse
 
 ### Frontend
-- **Gallery**: responsive grid, photo cards with hover delete, processing overlay (iPhone-style circular progress), error state
+- **Gallery**: responsive grid, click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state
+- **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), delete with confirmation, keyboard/backdrop dismiss
 - **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
 - **Settings**: interval slider (3-60s), transition type toggle, instant save
 - **Slideshow**: fullscreen with blur background effect, crossfade/slide/none transitions, auto-advance timer
@@ -58,6 +59,15 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 ---
 
 ## Recent Changes
+
+### Media Detail Modal (2026-02-28)
+
+Added lightbox modal for gallery — click any thumbnail to view full-size photo/video with metadata.
+
+- **New component**: `MediaDetailModal.tsx` — backdrop blur, header with filename + delete/close, full-size media display, metadata bar (dimensions, file size, duration, upload date)
+- **PhotoCard simplified**: removed hover overlay (filename + delete button); clicking now opens the modal directly. Delete only available from modal.
+- **GalleryPage**: `selectedMedia` state wired to PhotoCard `onClick` and modal. Auto-clears selection when media is deleted via WebSocket.
+- **Tests**: 13 unit tests for modal, 5 PhotoCard tests, 6 GalleryPage tests, 5 E2E tests (×2 viewports)
 
 ### Auto-Advance Timer Fix (2026-02-27)
 

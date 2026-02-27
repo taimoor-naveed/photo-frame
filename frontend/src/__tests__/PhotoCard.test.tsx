@@ -32,44 +32,34 @@ const mockVideo: Media = {
 
 describe("PhotoCard", () => {
   it("renders thumbnail image", () => {
-    render(<PhotoCard media={mockMedia} onDelete={() => {}} />);
+    render(<PhotoCard media={mockMedia} />);
     const img = screen.getByAltText("sunset.jpg");
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute("src", "/uploads/thumbnails/thumb_abc.jpg");
   });
 
   it("shows video badge for videos", () => {
-    render(<PhotoCard media={mockVideo} onDelete={() => {}} />);
+    render(<PhotoCard media={mockVideo} />);
     expect(screen.getByText("Video")).toBeInTheDocument();
   });
 
   it("does not show video badge for photos", () => {
-    render(<PhotoCard media={mockMedia} onDelete={() => {}} />);
+    render(<PhotoCard media={mockMedia} />);
     expect(screen.queryByText("Video")).not.toBeInTheDocument();
   });
 
-  it("shows confirm dialog on delete click and calls onDelete", () => {
-    const onDelete = vi.fn();
-    render(<PhotoCard media={mockMedia} onDelete={onDelete} />);
-
-    // Click delete button
-    fireEvent.click(screen.getByLabelText("Delete sunset.jpg"));
-
-    // Dialog should appear
-    expect(screen.getByText("Delete media")).toBeInTheDocument();
-    expect(screen.getAllByText(/sunset\.jpg/).length).toBeGreaterThanOrEqual(2);
-
-    // Confirm deletion (the red button in the dialog)
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect(onDelete).toHaveBeenCalledWith(1);
+  it("card click calls onClick with media object", () => {
+    const onClick = vi.fn();
+    render(<PhotoCard media={mockMedia} onClick={onClick} />);
+    fireEvent.click(screen.getByTestId("photo-card"));
+    expect(onClick).toHaveBeenCalledWith(mockMedia);
   });
 
-  it("cancel does not call onDelete", () => {
-    const onDelete = vi.fn();
-    render(<PhotoCard media={mockMedia} onDelete={onDelete} />);
-
-    fireEvent.click(screen.getByLabelText("Delete sunset.jpg"));
-    fireEvent.click(screen.getByText("Cancel"));
-    expect(onDelete).not.toHaveBeenCalled();
+  it("does not call onClick when processing", () => {
+    const onClick = vi.fn();
+    const processing = { ...mockMedia, processing_status: "processing" as const };
+    render(<PhotoCard media={processing} onClick={onClick} />);
+    fireEvent.click(screen.getByTestId("photo-card"));
+    expect(onClick).not.toHaveBeenCalled();
   });
 });
