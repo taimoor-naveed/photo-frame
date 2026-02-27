@@ -2,8 +2,7 @@
 set -e
 
 echo "=== E2E Tests ==="
-# docker compose run --rm e2e npx playwright test
-echo "Skipping — E2E tests will be added in Phase 5"
+docker compose --profile test run --rm e2e npx playwright test
 
 echo ""
 echo "=== Backend Integration Tests ==="

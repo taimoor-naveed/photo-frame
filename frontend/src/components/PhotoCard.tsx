@@ -13,7 +13,7 @@ export default function PhotoCard({ media, onDelete }: PhotoCardProps) {
 
   return (
     <>
-      <div className="group relative overflow-hidden rounded-2xl bg-gray-100 shadow-sm hover:shadow-md transition-shadow">
+      <div data-testid="photo-card" className="group relative overflow-hidden rounded-2xl bg-gray-100 shadow-sm hover:shadow-md transition-shadow">
         <div className="aspect-[4/3]">
           <img
             src={thumbnailUrl(media)}
