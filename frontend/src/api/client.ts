@@ -12,6 +12,8 @@ export interface Media {
   codec: string | null;
   thumb_filename: string;
   transcoded_filename: string | null;
+  processing_status: "processing" | "ready" | "error";
+  content_hash: string | null;
   uploaded_at: string;
 }
 
@@ -60,12 +62,32 @@ export const api = {
     get(id: number): Promise<Media> {
       return request(`/media/${id}`);
     },
-    upload(files: File[]): Promise<Media[]> {
+    upload(
+      files: File[],
+      onProgress?: (percent: number) => void,
+    ): Promise<Media[]> {
       const form = new FormData();
       for (const f of files) {
         form.append("files", f);
       }
-      return request("/media", { method: "POST", body: form });
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE}/media`);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && onProgress) {
+            onProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            reject(new ApiError(xhr.status, xhr.responseText || "Upload failed"));
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error"));
+        xhr.send(form);
+      });
     },
     delete(id: number): Promise<void> {
       return request(`/media/${id}`, { method: "DELETE" });

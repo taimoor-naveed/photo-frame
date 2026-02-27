@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface WsEvent {
-  type: "media_added" | "media_deleted" | "settings_changed";
+  type:
+    | "media_added"
+    | "media_deleted"
+    | "media_processing_complete"
+    | "media_processing_error"
+    | "settings_changed";
   payload: Record<string, unknown>;
 }
 

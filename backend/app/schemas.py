@@ -15,6 +15,8 @@ class MediaOut(BaseModel):
     codec: str | None = None
     thumb_filename: str
     transcoded_filename: str | None = None
+    processing_status: str = "ready"
+    content_hash: str | None = None
     uploaded_at: datetime
 
     model_config = {"from_attributes": True}

@@ -80,7 +80,7 @@
 
 **What was done:**
 - `useWebSocket` hook: auto-connect to `ws://host/ws`, auto-reconnect (2s delay), JSON event parsing, callback pattern via `onEvent`, clean disconnect on unmount
-- `useGestures` hook: wraps `@use-gesture/react` `useDrag` for swipe left/right, tap detection via `filterTaps`, long press via manual timer (500ms) — `useLongPress` not available in `@use-gesture/react`
+- `useGestures` hook: wraps `@use-gesture/react` `useDrag` for swipe left/right, tap detection via `filterTaps`, long press via manual timer (500ms) — **later replaced by tap zones in post-Phase 5 rework**
 - `SlideshowPage` fullscreen rewrite:
   - Fetches media list + settings via `Promise.all`, loading spinner, empty state with upload link
   - Playlist ordering: random (Fisher-Yates shuffle), sequential, newest
@@ -91,8 +91,8 @@
   - Preloads next image for smooth transitions
   - Keyboard support: ArrowLeft/Right, Space (pause), Escape (close overlay)
 - `SlideshowOverlay` component: frosted glass bottom sheet (`bg-black/60 backdrop-blur-xl`), interval slider, transition/order toggle buttons, pause/play with SVG icons, "Manage Photos" link, auto-hide after 5s
-- Touch gestures wired: swipe left → next, swipe right → prev, tap → toggle overlay, long press → pause/resume
-- WebSocket wired: `media_added`/`media_deleted` → refetch media list, `settings_changed` → update slideshow settings in real-time
+- Touch gestures wired: swipe left → next, swipe right → prev, tap → toggle overlay, long press → pause/resume — **later replaced by tap zones + long press in post-Phase 5 rework**
+- WebSocket wired: `media_added`/`media_deleted` → refetch media list, `settings_changed` → update slideshow settings in real-time — **WS field names fixed in post-Phase 5 (`event`/`data` → `type`/`payload`)**
 - 17 new tests (44 total): 4 useWebSocket, 3 useGestures, 6 SlideshowOverlay, 4 SlideshowPage
 
 **Test breakdown (new):**
@@ -152,10 +152,125 @@
 
 ---
 
+## Post-Phase 5 — Slideshow Fixes + Bug Fixes
+
+### Slideshow Rework
+
+**Crossfade transition fix:**
+- Root cause: `goToSlide` set `prevIndex` + `currentIndex` simultaneously — new slide rendered at full opacity instantly, no transition.
+- Fix: Added `transitioning` state. On slide change, new slide renders at opacity 0, then after a double `requestAnimationFrame`, CSS transitions it to opacity 1. Previous slide stays visible underneath during the 500ms transition.
+- Slide transitions also work: new slide slides in from `translateX(100%)`, previous slides out to `translateX(-100%)`.
+
+**Video waits for completion:**
+- Root cause: auto-advance timer always fired after `slideshow_interval`, cutting videos short.
+- Fix: Added `waitingForVideo` ref. If current media is video with `duration > interval`, timer is skipped and `waitingForVideo` is set. On video `ended` event, `goNext()` fires.
+
+**Replaced gestures with tap zones:**
+- Removed `useGestures` hook usage from slideshow (hook still exists, unused).
+- New model: tap right half → next, tap left half → prev, long press (500ms) → toggle overlay.
+- Removed `touch-none` class so overlay controls work normally.
+- Keyboard shortcuts preserved (arrows, space, escape).
+
+### Bug Fixes
+
+**WebSocket field name mismatch (critical):**
+- Root cause: backend sent `{"event": ..., "data": ...}` but frontend `WsEvent` type expected `{"type": ..., "payload": ...}`. TypeScript `as` cast hid the mismatch at compile time, so `event.type` was always `undefined` at runtime — all WS events silently ignored.
+- Impact: new uploads didn't appear in slideshow, deleted photos kept cycling, settings changes from other clients ignored.
+- Fix: updated backend broadcasts in `media.py` and `settings.py` to use `type`/`payload`. Updated backend integration tests to match.
+
+**Settings overlay disappearing during interaction:**
+- Root cause: `onPointerDown` on the container bubbled through the overlay, triggering the 500ms long-press timer which toggled overlay off (e.g., when dragging the interval slider).
+- Fix: overlay now calls `stopPropagation()` on pointer/click events. Any interaction inside the overlay resets the 5s auto-hide timer via `onInteraction` callback. Clicking outside the overlay dismisses it.
+
+### Files Changed
+- `frontend/src/pages/SlideshowPage.tsx` — transitions, video wait, tap zones, overlay dismiss
+- `frontend/src/components/SlideshowOverlay.tsx` — stopPropagation, onInteraction
+- `backend/app/routers/media.py` — WS field names `type`/`payload`
+- `backend/app/routers/settings.py` — WS field names `type`/`payload`
+- `backend/tests/integration/test_websocket.py` — updated assertions
+- `e2e/Dockerfile` — added ffmpeg for test video generation
+- `e2e/fixtures/base.ts` — added `apiUploadTestVideo`, `apiDeleteMedia`, `testVideoPath` fixture, VP8/WebM test video generation
+- `e2e/tests/slideshow.spec.ts` — 7 new tests (tap right/left, long press overlay, video wait, WS add/delete live update)
+
+### Verified
+- `docker compose exec frontend npm test` → 44 passed
+- `docker compose exec backend python -m pytest tests/ -v` → 40 passed
+- `docker compose --profile test run --rm e2e npx playwright test tests/slideshow.spec.ts` → 18 passed (9 desktop + 9 mobile)
+
+---
+
+## Video Upload, Processing & Reliability — COMPLETE
+
+**What was done:**
+
+### Schema Changes
+- Added `processing_status` column to Media model (`"processing"` | `"ready"` | `"error"`, default `"ready"`)
+- Added `content_hash` column (SHA-256, unique) for duplicate detection
+- Idempotent migration in `database.py` — `ALTER TABLE` + `CREATE UNIQUE INDEX` for existing DBs
+
+### Background Video Processing (Step 2)
+- Two-phase video upload: fast save (original + ffprobe + thumbnail) returns immediately, ffmpeg transcode runs in background `threading.Thread`
+- Smart transcoding: only non-browser-compatible codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
+- Background thread updates DB on completion/failure, broadcasts via `asyncio.run_coroutine_threadsafe`
+- New WebSocket events: `media_processing_complete`, `media_processing_error`
+
+### Upload Progress Bar (Step 3)
+- Replaced `fetch()` with `XMLHttpRequest` + `onProgress` callback in API client
+- Animated progress bar with percentage in UploadPage
+
+### Gallery — iPhone-style Processing State (Step 4)
+- Processing videos: dimmed thumbnail + centered spinner overlay + "Processing..." label
+- Error state: red tint + error icon + "Failed" label
+- `usePhotos` hook handles `media_processing_complete` (in-place update) and `media_processing_error` via WebSocket
+- Gallery gets live updates automatically — no changes needed in GalleryPage
+
+### Slideshow Error Handling + Thumbnail Blur (Step 5)
+- `handleVideoError` → `goNext()` unconditionally (never get stuck on broken video)
+- Replaced blur background `<video>` with `<img>` of thumbnail for videos — halves resource usage
+- Playlist filters out non-ready videos (`processing_status !== "ready"`)
+- Added `media_processing_complete` WS handler to add newly-ready videos to playlist
+
+### Upload Reliability (Step 6)
+- File input cleared after upload (`fileInputRef.current.value = ""`) — retry works
+- Content-hash dedup: SHA-256 hash checked before processing, returns existing item if duplicate
+- Upfront validation: all files checked (extension, size) before any processing begins
+
+### Tests Updated
+- Backend: 43 tests (unit + integration) — new tests for duplicate detection, H.264 immediate ready, HEVC background transcode flow
+- Frontend: 44 tests — updated mocks with `processing_status`/`content_hash`, MockWS for usePhotos
+- E2E: 49 passed, 3 skipped — unique uploads via `crypto.randomBytes(8)`, `apiWaitForProcessing()` helper
+
+### Files Changed
+- `backend/app/models.py` — `processing_status`, `content_hash` columns
+- `backend/app/schemas.py` — new fields in `MediaOut`
+- `backend/app/database.py` — idempotent migration
+- `backend/app/services/video.py` — `needs_transcode()` smart check, `save_video_original()` fast phase-1
+- `backend/app/routers/media.py` — two-phase upload, background transcode, dedup, upfront validation
+- `backend/tests/conftest.py` — monkeypatch `SessionLocal` for background threads
+- `backend/tests/integration/test_media_api.py` — duplicate detection, updated assertions
+- `backend/tests/integration/test_websocket.py` — H.264 ready, HEVC transcode flow, `sample_hevc_video` fixture
+- `backend/tests/unit/test_video_service.py` — updated for smart transcode
+- `frontend/src/api/client.ts` — XHR upload, `processing_status`/`content_hash` in `Media`
+- `frontend/src/hooks/useWebSocket.ts` — new event types
+- `frontend/src/hooks/usePhotos.ts` — `uploadProgress`, WS live updates
+- `frontend/src/components/PhotoCard.tsx` — processing/error overlays
+- `frontend/src/pages/UploadPage.tsx` — progress bar, file input clearing
+- `frontend/src/pages/SlideshowPage.tsx` — error handling, thumbnail blur, playlist filtering
+- `frontend/src/__tests__/*` — updated mocks across all test files
+- `e2e/fixtures/base.ts` — unique uploads, `apiWaitForProcessing()`, updated `MediaItem`
+- `e2e/tests/slideshow.spec.ts` — waits for processing before slideshow tests
+
+### Verified
+- `docker compose exec backend python -m pytest tests/ -v` → 43 passed
+- `docker compose exec frontend npm test` → 44 passed
+- `docker compose --profile test run --rm e2e npx playwright test` → 49 passed, 3 skipped
+
+---
+
 ## All Phases Complete
 
 **Total test counts:**
-- Backend: 40 tests (18 unit + 22 integration)
+- Backend: 43 tests (unit + integration)
 - Frontend: 44 unit tests
-- E2E: 42 tests (39 pass, 3 skipped for viewport-specific tests)
-- **Grand total: 126 tests**
+- E2E: 49 passed, 3 skipped (mobile/desktop exclusions)
+- **Grand total: ~136 tests**

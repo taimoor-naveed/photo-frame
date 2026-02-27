@@ -7,6 +7,7 @@ interface SlideshowOverlayProps {
   paused: boolean;
   onTogglePause: () => void;
   onUpdateSettings: (update: SettingsUpdate) => void;
+  onInteraction?: () => void;
 }
 
 export default function SlideshowOverlay({
@@ -15,12 +16,21 @@ export default function SlideshowOverlay({
   paused,
   onTogglePause,
   onUpdateSettings,
+  onInteraction,
 }: SlideshowOverlayProps) {
+  const stopPropagation = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+    onInteraction?.();
+  };
+
   return (
     <div
       className={`fixed bottom-0 left-0 right-0 z-40 transition-transform duration-300 ease-out ${
         visible ? "translate-y-0" : "translate-y-full"
       }`}
+      onPointerDown={stopPropagation}
+      onPointerUp={stopPropagation}
+      onClick={stopPropagation}
     >
       <div className="mx-auto max-w-lg p-4 pb-8">
         <div className="rounded-2xl bg-black/60 backdrop-blur-xl p-6 shadow-2xl text-white">

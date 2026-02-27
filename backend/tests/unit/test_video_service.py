@@ -56,12 +56,15 @@ def test_generate_video_thumbnail(video_file, tmp_dirs):
 
 
 def test_needs_transcode():
+    # Non-browser-compatible codecs need transcode
     assert needs_transcode("hevc") is True
     assert needs_transcode("h265") is True
-    assert needs_transcode("h.265") is True
-    assert needs_transcode("HEVC") is True
+    assert needs_transcode("prores") is True
+    # Browser-compatible codecs don't need transcode
     assert needs_transcode("h264") is False
+    assert needs_transcode("vp8") is False
     assert needs_transcode("vp9") is False
+    assert needs_transcode("av1") is False
 
 
 def test_process_video(tmp_dirs):
@@ -93,6 +96,6 @@ def test_process_video(tmp_dirs):
     assert result["codec"] == "h264"
     assert result["duration"] > 0
     assert result["file_size"] > 0
-    assert result["transcoded_filename"] is None  # h264 doesn't need transcode
+    assert result["transcoded_filename"] is None  # h264 is browser-compatible, no transcode
     assert (tmp_dirs["originals"] / result["filename"]).exists()
     assert (tmp_dirs["thumbnails"] / result["thumb_filename"]).exists()

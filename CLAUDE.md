@@ -6,7 +6,7 @@ Raspberry Pi 5 photo frame with web management UI. Touchscreen display, supports
 
 Backend: Python 3.12 + FastAPI + SQLite (sync SQLAlchemy) + Pillow + ffmpeg
 Frontend: React 19 + TypeScript + Vite 6 + Tailwind CSS 3.4
-Real-time: FastAPI WebSocket | Touch: @use-gesture/react
+Real-time: FastAPI WebSocket | Touch: tap zones + long press
 Tests: pytest + httpx | Vitest + RTL | Playwright
 Deploy: Docker Compose
 

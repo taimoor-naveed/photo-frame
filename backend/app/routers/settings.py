@@ -37,8 +37,8 @@ async def update_settings(update: SettingsUpdate, db: Session = Depends(get_db))
 
     asyncio.create_task(
         manager.broadcast({
-            "event": "settings_changed",
-            "data": SettingsOut.model_validate(settings).model_dump(),
+            "type": "settings_changed",
+            "payload": SettingsOut.model_validate(settings).model_dump(),
         })
     )
 

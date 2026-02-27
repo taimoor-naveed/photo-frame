@@ -76,8 +76,13 @@ def generate_video_thumbnail(
 
 
 def needs_transcode(codec: str) -> bool:
-    """Check if video codec needs transcoding to H.264."""
-    return codec.lower() in ("hevc", "h265", "h.265")
+    """Transcode non-browser-compatible codecs to H.264 MP4.
+
+    H.264, VP8, VP9, and AV1 are widely supported by browsers.
+    HEVC, ProRes, and other codecs need transcoding.
+    """
+    browser_compatible = {"h264", "vp8", "vp9", "av1"}
+    return codec.lower() not in browser_compatible
 
 
 def transcode_to_h264(
@@ -106,6 +111,47 @@ def transcode_to_h264(
         check=True,
     )
     return output_path
+
+
+def save_video_original(
+    file_bytes: bytes,
+    original_name: str,
+    originals_dir: Path | None = None,
+    thumbnails_dir: Path | None = None,
+) -> dict:
+    """Phase 1: Save original file, extract metadata, generate thumbnail. Fast (no transcode).
+
+    Returns dict with: filename, width, height, file_size, duration, codec, thumb_filename
+    """
+    if originals_dir is None:
+        originals_dir = config.ORIGINALS_DIR
+    if thumbnails_dir is None:
+        thumbnails_dir = config.THUMBNAILS_DIR
+
+    ext = Path(original_name).suffix.lower()
+    filename = f"{uuid.uuid4()}{ext}"
+    thumb_filename = f"thumb_{uuid.uuid4()}.jpg"
+
+    # Save original
+    original_path = originals_dir / filename
+    original_path.write_bytes(file_bytes)
+    file_size = original_path.stat().st_size
+
+    # Extract metadata
+    meta = get_video_metadata(original_path)
+
+    # Generate thumbnail
+    generate_video_thumbnail(original_path, thumb_filename, thumbnails_dir)
+
+    return {
+        "filename": filename,
+        "thumb_filename": thumb_filename,
+        "width": meta["width"],
+        "height": meta["height"],
+        "file_size": file_size,
+        "duration": meta["duration"],
+        "codec": meta["codec"],
+    }
 
 
 def process_video(
