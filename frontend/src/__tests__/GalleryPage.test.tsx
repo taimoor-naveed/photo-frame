@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import GalleryPage from "../pages/GalleryPage";
 import type { MediaList } from "../api/client";
@@ -93,6 +93,78 @@ describe("GalleryPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Retry")).toBeInTheDocument();
+    });
+  });
+
+  it("click photo card opens modal with correct data-media-id", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockList,
+    } as Response);
+
+    render(
+      <MemoryRouter>
+        <GalleryPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByAltText("photo.jpg")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("photo-card"));
+    expect(screen.getByTestId("media-detail-modal")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("media-detail-modal").querySelector("[data-media-id='1']"),
+    ).toBeInTheDocument();
+  });
+
+  it("delete from modal removes photo and closes modal", async () => {
+    // First fetch: list with one photo
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockList,
+    } as Response);
+
+    render(
+      <MemoryRouter>
+        <GalleryPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByAltText("photo.jpg")).toBeInTheDocument();
+    });
+
+    // Open modal
+    fireEvent.click(screen.getByTestId("photo-card"));
+    expect(screen.getByTestId("media-detail-modal")).toBeInTheDocument();
+
+    // Mock delete API call + refetch with empty list
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({}),
+    } as Response);
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ items: [], total: 0, page: 1, per_page: 50 }),
+    } as Response);
+
+    // Click trash (modal's delete button, not PhotoCard's)
+    fireEvent.click(screen.getByLabelText("Delete"));
+    // ConfirmDialog's red Delete button (last one matching)
+    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButtons[deleteButtons.length - 1]);
+
+    // Modal should close
+    await waitFor(() => {
+      expect(screen.queryByTestId("media-detail-modal")).not.toBeInTheDocument();
+    });
+
+    // Photo should be gone
+    await waitFor(() => {
+      expect(screen.getByText("No photos yet")).toBeInTheDocument();
     });
   });
 });

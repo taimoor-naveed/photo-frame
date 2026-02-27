@@ -1,9 +1,20 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import type { Media } from "../api/client";
+import MediaDetailModal from "../components/MediaDetailModal";
 import PhotoCard from "../components/PhotoCard";
 import { usePhotos } from "../hooks/usePhotos";
 
 export default function GalleryPage() {
   const { photos, total, loading, error, deletePhoto } = usePhotos();
+  const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
+
+  // Clear selection if the selected media is removed (e.g. via WebSocket)
+  useEffect(() => {
+    if (selectedMedia && !photos.some((p) => p.id === selectedMedia.id)) {
+      setSelectedMedia(null);
+    }
+  }, [photos, selectedMedia]);
 
   if (loading) {
     return (
@@ -67,9 +78,22 @@ export default function GalleryPage() {
       </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {photos.map((media) => (
-          <PhotoCard key={media.id} media={media} onDelete={deletePhoto} />
+          <PhotoCard
+            key={media.id}
+            media={media}
+            onClick={(m) => setSelectedMedia(m)}
+          />
         ))}
       </div>
+
+      <MediaDetailModal
+        media={selectedMedia}
+        onClose={() => setSelectedMedia(null)}
+        onDelete={(id) => {
+          setSelectedMedia(null);
+          deletePhoto(id);
+        }}
+      />
     </div>
   );
 }

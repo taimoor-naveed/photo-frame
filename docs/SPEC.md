@@ -90,6 +90,21 @@ New columns added via idempotent `ALTER TABLE` in `database.py`.
 - **Videos**: .mp4 (H.264), .mov (H.264/HEVC), .webm (VP9)
 - **Max upload size**: 200MB
 
+## Gallery — Media Detail Modal
+
+Clicking a thumbnail in the gallery opens a lightbox modal:
+
+| Element         | Details                                                    |
+|-----------------|------------------------------------------------------------|
+| Backdrop        | `bg-black/60 backdrop-blur-sm`, click to close             |
+| Header          | Filename (truncated), trash icon, close (X) button         |
+| Media area      | Full-size `<img>` or `<video autoPlay muted controls>`     |
+| Metadata bar    | W × H, file size (human-readable), duration (videos), date |
+| Delete          | Trash icon → ConfirmDialog → delete + close modal          |
+| Close           | X button, Escape key, or backdrop click                    |
+
+Body scroll is locked while the modal is open. Escape is suppressed when the ConfirmDialog is open (to avoid closing both).
+
 ## Display — Blur Background Effect
 
 Aspect ratio: 10:7 (~1.43:1). Pure CSS, no backend processing.

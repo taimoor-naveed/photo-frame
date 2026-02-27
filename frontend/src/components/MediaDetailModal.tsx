@@ -1,0 +1,193 @@
+import { useEffect, useState } from "react";
+import type { Media } from "../api/client";
+import { originalUrl, thumbnailUrl } from "../api/client";
+import ConfirmDialog from "./ConfirmDialog";
+
+interface MediaDetailModalProps {
+  media: Media | null;
+  onClose: () => void;
+  onDelete: (id: number) => void;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
+
+export default function MediaDetailModal({
+  media,
+  onClose,
+  onDelete,
+}: MediaDetailModalProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  // Reset image loaded state when media changes
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [media?.id]);
+
+  // Body scroll lock
+  useEffect(() => {
+    if (!media) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [media]);
+
+  // Escape key closes modal (but not when ConfirmDialog is open)
+  useEffect(() => {
+    if (!media) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !confirmOpen) {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [media, confirmOpen, onClose]);
+
+  if (!media) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        data-testid="media-detail-modal"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+
+        {/* Modal card */}
+        <div
+          className="relative z-10 w-full max-w-4xl max-h-[90vh] rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header bar */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+            <h2 className="text-sm font-medium text-gray-900 truncate mr-4">
+              {media.original_name}
+            </h2>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => setConfirmOpen(true)}
+                className="rounded-lg p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                aria-label="Delete"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </button>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                aria-label="Close"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Media area */}
+          <div className="flex-1 min-h-0 bg-gray-50 flex items-center justify-center overflow-hidden">
+            {media.media_type === "video" ? (
+              <video
+                src={originalUrl(media)}
+                data-media-id={media.id}
+                className="max-w-full max-h-[70vh] object-contain"
+                autoPlay
+                muted
+                controls
+              />
+            ) : (
+              <div className="relative flex items-center justify-center w-full h-full">
+                {/* Thumbnail placeholder while full image loads */}
+                {!imageLoaded && (
+                  <img
+                    src={thumbnailUrl(media)}
+                    alt=""
+                    className="max-w-full max-h-[70vh] object-contain blur-sm"
+                  />
+                )}
+                <img
+                  src={originalUrl(media)}
+                  alt={media.original_name}
+                  data-media-id={media.id}
+                  className={`max-w-full max-h-[70vh] object-contain ${
+                    !imageLoaded ? "absolute inset-0 m-auto opacity-0" : ""
+                  }`}
+                  onLoad={() => setImageLoaded(true)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Metadata bar */}
+          <div className="flex items-center gap-4 px-5 py-3 border-t border-gray-100 text-xs text-gray-500">
+            <span>
+              {media.width} × {media.height}
+            </span>
+            <span>{formatFileSize(media.file_size)}</span>
+            {media.media_type === "video" && media.duration != null && (
+              <span>{formatDuration(media.duration)}</span>
+            )}
+            <span className="ml-auto">{formatDate(media.uploaded_at)}</span>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete media"
+        message={`Are you sure you want to delete "${media.original_name}"? This cannot be undone.`}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          onDelete(media.id);
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </>
+  );
+}
