@@ -115,27 +115,6 @@ export default function SlideshowOverlay({
             </div>
           </div>
 
-          {/* Photo Order */}
-          <div>
-            <label className="block text-xs font-medium text-white/60 mb-2">
-              Order
-            </label>
-            <div className="flex gap-2">
-              {["random", "sequential", "newest"].map((order) => (
-                <button
-                  key={order}
-                  onClick={() => onUpdateSettings({ photo_order: order })}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-                    settings.photo_order === order
-                      ? "bg-white text-black"
-                      : "bg-white/15 text-white/80 hover:bg-white/25"
-                  }`}
-                >
-                  {order}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>

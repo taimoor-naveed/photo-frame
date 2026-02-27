@@ -6,7 +6,6 @@ import type { Settings } from "../api/client";
 const mockSettings: Settings = {
   slideshow_interval: 10,
   transition_type: "crossfade",
-  photo_order: "random",
 };
 
 beforeEach(() => {
@@ -24,7 +23,7 @@ describe("SettingsPage", () => {
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
   });
 
-  it("renders settings controls", async () => {
+  it("renders settings controls without photo order", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
       json: async () => mockSettings,
@@ -40,9 +39,12 @@ describe("SettingsPage", () => {
       expect(screen.getByText("Slideshow Interval")).toBeInTheDocument();
     });
     expect(screen.getByText("Transition")).toBeInTheDocument();
-    expect(screen.getByText("Photo Order")).toBeInTheDocument();
     expect(screen.getByText("crossfade")).toBeInTheDocument();
-    expect(screen.getByText("random")).toBeInTheDocument();
+    // Photo Order section should not exist
+    expect(screen.queryByText("Photo Order")).not.toBeInTheDocument();
+    expect(screen.queryByText("random")).not.toBeInTheDocument();
+    expect(screen.queryByText("sequential")).not.toBeInTheDocument();
+    expect(screen.queryByText("newest")).not.toBeInTheDocument();
   });
 
   it("calls update when transition button clicked", async () => {

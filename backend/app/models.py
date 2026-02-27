@@ -35,4 +35,4 @@ class Settings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     slideshow_interval: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     transition_type: Mapped[str] = mapped_column(String, nullable=False, default="crossfade")
-    photo_order: Mapped[str] = mapped_column(String, nullable=False, default="random")
+

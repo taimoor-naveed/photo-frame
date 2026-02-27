@@ -9,9 +9,9 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 | Suite | Tests | Status |
 |-------|-------|--------|
 | Backend (pytest) | 43 | All passing |
-| Frontend (vitest) | 41 | All passing |
-| E2E (playwright) | 55 (3 skipped) | All passing |
-| **Total** | **~139** | **Green** |
+| Frontend (vitest) | 57 | All passing |
+| E2E (playwright) | 57 (3 skipped) | All passing |
+| **Total** | **~157** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-only / desktop-only).
 
@@ -32,7 +32,7 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 ### Frontend
 - **Gallery**: responsive grid, photo cards with hover delete, processing overlay (iPhone-style circular progress), error state
 - **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
-- **Settings**: interval slider (3-60s), transition type toggle, photo order toggle, instant save
+- **Settings**: interval slider (3-60s), transition type toggle, instant save
 - **Slideshow**: fullscreen with blur background effect, crossfade/slide/none transitions, auto-advance timer
 - **Navigation**: tap right/left halves, arrow keys, long press for overlay, space to pause, escape to close overlay
 - **Video**: autoplay muted, waits for long videos to finish, shows first frame when ended with interval remaining
@@ -54,6 +54,24 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 - **Tap zones over swipe gestures** — simpler, more reliable on touch screens
 - **VP8/WebM for E2E video tests** — H.264 doesn't play in headless Chromium (Playwright Docker)
 - **Thumbnail for video blur background** — uses `<img>` instead of second `<video>` to halve resource usage
+
+---
+
+## Recent Changes
+
+### Test Hardening — Slideshow Identity Assertions (2026-02-27)
+
+Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slide` component (2 lines of production code) to enable tests to verify _which_ media is displayed, not just _that something_ rendered.
+
+**Unit tests (SlideshowPage.test.tsx):**
+- Rewrote 8 weak assertions that used `toBeGreaterThan(0)` to verify specific media IDs
+- Added 5 new tests targeting 3 bug classes: empty→first-photo index error, add-during-playback flash, delete-current-photo index calculation
+- Added `getCurrentMediaId()` and `collectAllMediaIds()` helpers scoped to the z-10 current slide layer
+
+**E2E tests (slideshow.spec.ts):**
+- Strengthened 3 existing tests (blur background, video wait, delete video) with media identity verification
+- Added 2 new critical tests: first-photo-to-empty-slideshow and add-during-video-playback
+- Added `currentSlideMediaId()` helper
 
 ---
 

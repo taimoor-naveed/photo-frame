@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, originalUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
 import { useWebSocket, type WsEvent } from "../hooks/useWebSocket";
@@ -51,54 +51,31 @@ export default function SlideshowPage() {
     fetchData();
   }, [fetchData]);
 
-  // ─── Ordered playlist (only ready media) ───────────────────
-  // Playlist + currentIndex live in `slide` state so they always update atomically.
-  // Only reshuffles on initial load or when the order setting changes.
+  // ─── Shuffled playlist (only ready media) ──────────────────
+  // Always random. Shuffle once on load. Insert new items at random positions.
+  // Remove deleted items in place. No settings, no re-shuffling.
 
-  const buildPlaylist = useCallback(
-    (items: Media[], order: string) => {
-      const ready = items.filter(
-        (m) => m.media_type === "photo" || m.processing_status === "ready",
-      );
-      const sorted = [...ready];
-      if (order === "random") {
-        for (let i = sorted.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [sorted[i], sorted[j]] = [sorted[j], sorted[i]];
-        }
-      } else if (order === "newest") {
-        sorted.sort(
-          (a, b) =>
-            new Date(b.uploaded_at).getTime() -
-            new Date(a.uploaded_at).getTime(),
-        );
-      }
-      return sorted;
-    },
-    [],
-  );
+  const shuffleArray = useCallback(<T,>(arr: T[]): T[] => {
+    const shuffled = [...arr];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }, []);
 
-  // Build playlist on initial data load
+  // Build playlist on initial data load (even if empty — prevents useEffect from
+  // fighting with the WS handler when the first photo arrives on an empty slideshow)
   const initialBuildDone = useRef(false);
   useEffect(() => {
-    if (mediaList.length && settings && !initialBuildDone.current) {
+    if (settings && !initialBuildDone.current) {
       initialBuildDone.current = true;
-      setSlide({ playlist: buildPlaylist(mediaList, settings.photo_order), currentIndex: 0 });
+      const ready = mediaList.filter(
+        (m) => m.media_type === "photo" || m.processing_status === "ready",
+      );
+      setSlide({ playlist: shuffleArray(ready), currentIndex: 0 });
     }
-  }, [mediaList, settings, buildPlaylist]);
-
-  // Rebuild playlist when order setting changes
-  const lastOrder = useRef<string | null>(null);
-  useEffect(() => {
-    if (!settings || !initialBuildDone.current) return;
-    if (lastOrder.current !== null && lastOrder.current !== settings.photo_order) {
-      setSlide((prev) => ({
-        playlist: buildPlaylist(mediaList, settings.photo_order),
-        currentIndex: Math.min(prev.currentIndex, mediaList.length - 1),
-      }));
-    }
-    lastOrder.current = settings.photo_order;
-  }, [settings?.photo_order, mediaList, settings, buildPlaylist]);
+  }, [mediaList, settings, shuffleArray]);
 
   const currentMedia = playlist[currentIndex] ?? null;
   const prevMedia =
@@ -159,24 +136,25 @@ export default function SlideshowPage() {
     return () => clearTimeout(advanceTimer.current);
   }, [currentMedia?.id, paused, settings, goNext]);
 
-  // ─── Video ended handler ─────────────────────────────────────
+  // ─── Video handlers (stable refs to avoid Slide re-renders) ──
+
+  const goNextRef = useRef(goNext);
+  useEffect(() => { goNextRef.current = goNext; }, [goNext]);
 
   const handleVideoEnded = useCallback(() => {
     if (waitingForVideo.current) {
-      goNext();
+      goNextRef.current();
     } else {
       // Video ended within interval — show first frame while waiting for timer
       if (videoRef.current) {
         videoRef.current.currentTime = 0;
       }
     }
-  }, [goNext]);
-
-  // ─── Video error handler — never get stuck ──────────────────
+  }, []);
 
   const handleVideoError = useCallback(() => {
-    goNext();
-  }, [goNext]);
+    goNextRef.current();
+  }, []);
 
   // ─── Overlay auto-hide ──────────────────────────────────────
 
@@ -211,30 +189,41 @@ export default function SlideshowPage() {
       if (event.type === "media_added") {
         const added = event.payload as unknown as Media;
         setMediaList((prev) => [added, ...prev]);
-        // Add to playlist at end so it doesn't disrupt current position
+        // Insert at random position with dedup guard
         const isReady =
           added.media_type === "photo" || added.processing_status === "ready";
         if (isReady) {
-          setSlide((prev) => ({
-            ...prev,
-            playlist: [...prev.playlist, added],
-          }));
+          setSlide((prev) => {
+            if (prev.playlist.some((m) => m.id === added.id)) return prev;
+            const newPlaylist = [...prev.playlist];
+            const insertAt = Math.floor(Math.random() * (newPlaylist.length + 1));
+            newPlaylist.splice(insertAt, 0, added);
+            // When playlist was empty, show the new item immediately
+            if (prev.playlist.length === 0) {
+              return { playlist: newPlaylist, currentIndex: 0 };
+            }
+            const newIndex = insertAt <= prev.currentIndex
+              ? prev.currentIndex + 1
+              : prev.currentIndex;
+            return { playlist: newPlaylist, currentIndex: newIndex };
+          });
         }
       } else if (event.type === "media_deleted") {
         const { id } = event.payload as { id: number };
         setMediaList((prev) => prev.filter((m) => m.id !== id));
-        // Atomically update playlist + currentIndex to avoid flash
+        // Atomically update playlist + currentIndex — handles duplicates safely
         setSlide((prev) => {
-          const idx = prev.playlist.findIndex((m) => m.id === id);
-          if (idx === -1) return prev; // not in playlist, no change
           const newPlaylist = prev.playlist.filter((m) => m.id !== id);
-          let newIndex = prev.currentIndex;
+          if (newPlaylist.length === prev.playlist.length) return prev; // not found
+          const removedBeforeCurrent = prev.playlist
+            .slice(0, prev.currentIndex)
+            .filter((m) => m.id === id).length;
+          const currentWasDeleted = prev.playlist[prev.currentIndex]?.id === id;
+          let newIndex = prev.currentIndex - removedBeforeCurrent;
           if (newPlaylist.length === 0) {
             newIndex = 0;
-          } else if (idx < prev.currentIndex) {
-            newIndex = prev.currentIndex - 1;
-          } else if (idx === prev.currentIndex) {
-            newIndex = prev.currentIndex % newPlaylist.length;
+          } else if (currentWasDeleted) {
+            newIndex = newIndex % newPlaylist.length;
           }
           return { playlist: newPlaylist, currentIndex: newIndex };
         });
@@ -244,7 +233,7 @@ export default function SlideshowPage() {
         setMediaList((prev) =>
           prev.map((m) => (m.id === updated.id ? updated : m)),
         );
-        // Add to playlist if it was processing before (now ready)
+        // Update in-place if already in playlist, otherwise insert at random position with dedup
         setSlide((prev) => {
           if (prev.playlist.some((m) => m.id === updated.id)) {
             return {
@@ -254,7 +243,16 @@ export default function SlideshowPage() {
               ),
             };
           }
-          return { ...prev, playlist: [...prev.playlist, updated] };
+          const newPlaylist = [...prev.playlist];
+          const insertAt = Math.floor(Math.random() * (newPlaylist.length + 1));
+          newPlaylist.splice(insertAt, 0, updated);
+          if (prev.playlist.length === 0) {
+            return { playlist: newPlaylist, currentIndex: 0 };
+          }
+          const newIndex = insertAt <= prev.currentIndex
+            ? prev.currentIndex + 1
+            : prev.currentIndex;
+          return { playlist: newPlaylist, currentIndex: newIndex };
         });
       } else if (event.type === "settings_changed") {
         setSettings(event.payload as unknown as Settings);
@@ -406,12 +404,14 @@ export default function SlideshowPage() {
               : undefined,
         }}
       >
-        <Slide
-          media={currentMedia!}
-          videoRef={videoRef}
-          onEnded={handleVideoEnded}
-          onError={handleVideoError}
-        />
+        {currentMedia && (
+          <Slide
+            media={currentMedia}
+            videoRef={videoRef}
+            onEnded={handleVideoEnded}
+            onError={handleVideoError}
+          />
+        )}
       </div>
 
       {/* Pause indicator */}
@@ -445,7 +445,7 @@ interface SlideProps {
   onError?: () => void;
 }
 
-function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
+const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
   const src = originalUrl(media);
 
   if (media.media_type === "video") {
@@ -462,6 +462,7 @@ function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
         <video
           ref={videoRef}
           src={src}
+          data-media-id={media.id}
           className="absolute inset-0 w-full h-full object-contain"
           muted
           autoPlay
@@ -484,9 +485,10 @@ function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
       {/* Foreground image */}
       <img
         src={src}
+        data-media-id={media.id}
         className="absolute inset-0 w-full h-full object-contain"
         alt={media.original_name}
       />
     </>
   );
-}
+});

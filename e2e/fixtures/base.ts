@@ -33,7 +33,6 @@ export async function apiResetSettings(): Promise<void> {
     body: JSON.stringify({
       slideshow_interval: 10,
       transition_type: "crossfade",
-      photo_order: "random",
     }),
   });
 }

@@ -81,27 +81,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Photo Order */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">
-            Photo Order
-          </label>
-          <div className="flex gap-2">
-            {["random", "sequential", "newest"].map((order) => (
-              <button
-                key={order}
-                onClick={() => updateSettings({ photo_order: order })}
-                className={`rounded-xl px-4 py-2.5 text-sm font-medium capitalize transition-colors ${
-                  settings.photo_order === order
-                    ? "bg-gray-900 text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                {order}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
