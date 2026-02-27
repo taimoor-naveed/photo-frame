@@ -1,23 +1,75 @@
 import { Link } from "react-router-dom";
+import PhotoCard from "../components/PhotoCard";
+import { usePhotos } from "../hooks/usePhotos";
 
 export default function GalleryPage() {
-  return (
-    <div className="text-center py-20">
-      <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 mb-6">
-        <svg className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
+  const { photos, total, loading, error, deletePhoto } = usePhotos();
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="aspect-[4/3] animate-pulse rounded-2xl bg-gray-200" />
+        ))}
       </div>
-      <h2 className="text-2xl font-semibold text-gray-900 mb-2">No photos yet</h2>
-      <p className="text-gray-500 mb-8 max-w-sm mx-auto">
-        Upload your first photos to get started with your photo frame.
-      </p>
-      <Link
-        to="/upload"
-        className="inline-flex items-center rounded-xl bg-gray-900 px-6 py-3 text-sm font-medium text-white shadow-sm hover:bg-gray-800 transition-colors"
-      >
-        Upload Photos
-      </Link>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-red-500 mb-4">{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-4"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (photos.length === 0) {
+    return (
+      <div className="text-center py-20">
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 mb-6">
+          <svg className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-semibold text-gray-900 mb-2">No photos yet</h2>
+        <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+          Upload your first photos to get started with your photo frame.
+        </p>
+        <Link
+          to="/upload"
+          className="inline-flex items-center rounded-xl bg-gray-900 px-6 py-3 text-sm font-medium text-white shadow-sm hover:bg-gray-800 transition-colors"
+        >
+          Upload Photos
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold text-gray-900">
+          Gallery
+          <span className="ml-2 text-base font-normal text-gray-400">{total}</span>
+        </h1>
+        <Link
+          to="/upload"
+          className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-gray-800 transition-colors"
+        >
+          Upload
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {photos.map((media) => (
+          <PhotoCard key={media.id} media={media} onDelete={deletePhoto} />
+        ))}
+      </div>
     </div>
   );
 }
