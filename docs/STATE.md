@@ -6,8 +6,8 @@
 |-------|--------------------------------------|--------------|
 | 1     | Foundation (Docker, scaffolding, DB) | **COMPLETE** |
 | 2     | Backend API + WebSocket + Tests      | **COMPLETE** |
-| 3     | Frontend Management UI + Tests       | **CURRENT**  |
-| 4     | Slideshow + Touch + Live Updates     | Pending      |
+| 3     | Frontend Management UI + Tests       | **COMPLETE** |
+| 4     | Slideshow + Touch + Live Updates     | **CURRENT**  |
 | 5     | E2E Tests + Docker Polish            | Pending      |
 
 ---
@@ -23,119 +23,113 @@
 - Test runner scripts (stubs)
 - CLAUDE.md + docs/SPEC.md + docs/STATE.md
 
-**Decisions:**
-- Sync SQLAlchemy (not async) — sufficient for 2-3 users
-- No package-lock.json committed — generated in container at build
-- Test scripts use `docker compose exec` (requires running containers)
-
 ---
 
 ## Phase 2 — COMPLETE: Backend API + WebSocket + Tests
 
 **What was done:**
-- Image service: EXIF auto-rotate (ImageOps.exif_transpose), thumbnail generation (300px max), RGB conversion
-- Video service: ffprobe metadata, thumbnail at 25% duration, HEVC→H.264 transcode detection
-- Media router: multi-file upload (POST), paginated list (GET), get by ID, delete with file cleanup
-- Settings router: get with auto-create defaults, partial update (PUT)
-- Uploads router: FileResponse-based file serving for originals/thumbnails/transcoded
-- WebSocket events: media_added, media_deleted, settings_changed broadcast on mutations
+- Image service: EXIF auto-rotate, thumbnail generation (300px), RGB conversion
+- Video service: ffprobe metadata, thumbnail at 25%, HEVC→H.264 transcode
+- Media router: multi-file upload, paginated list, get by ID, delete with file cleanup
+- Settings router: get with auto-create defaults, partial update
+- Uploads router: FileResponse-based file serving
+- WebSocket events: media_added, media_deleted, settings_changed
 - Full test suite: 40 tests (18 unit + 22 integration), all passing
 
-**Test breakdown:**
-- `tests/unit/test_image_service.py` (5) — basic processing, thumbnail size, EXIF rotation, PNG, HEIC
-- `tests/unit/test_video_service.py` (5) — metadata, invalid file, thumbnail, transcode check, full processing
-- `tests/unit/test_models.py` (3) — media creation, video fields, settings defaults
-- `tests/unit/test_schemas.py` (5) — serialization, video fields, settings, partial update, empty update
-- `tests/integration/test_media_api.py` (14) — upload photo/png/video, multi-file, invalid, list, pagination, get, 404, delete, file serving
-- `tests/integration/test_settings_api.py` (4) — defaults, full update, partial update, persistence
-- `tests/integration/test_websocket.py` (4) — connect, media_added, media_deleted, settings_changed
-
-**Verified:** `docker compose exec backend pytest tests/ -v` → 40 passed in 1.53s
-
 **Decisions:**
-- Replaced StaticFiles mounts with FileResponse router (`uploads.py`) for testability
-- All services/routers read paths from `app.config` at call time (not import time) — enables monkeypatch in tests
-- Added `thumb_filename` and `transcoded_filename` columns to Media model (not in original plan but needed to serve/delete files)
-- Added `piexif` to dev deps for EXIF rotation tests
-- Added `./backend/tests` volume mount to docker-compose.yml for hot-reloading tests
+- Replaced StaticFiles mounts with FileResponse router for testability
+- All services read paths from `app.config` at call time (not import time)
+- Added `thumb_filename` and `transcoded_filename` to Media model
 
 ---
 
-## Phase 3 — CURRENT: Frontend Management UI + Tests
+## Phase 3 — COMPLETE: Frontend Management UI + Tests
+
+**What was done:**
+- API client (`api/client.ts`): typed fetch wrapper, `api.media.*` and `api.settings.*` methods, `thumbnailUrl()` / `originalUrl()` helpers
+- `usePhotos` hook: fetch, upload, delete with auto-refetch
+- `useSettings` hook: fetch, update with "Saved" toast state (auto-clears after 2s)
+- `ConfirmDialog` component: frosted glass modal, escape-to-close, focus management
+- `PhotoCard` component: thumbnail with 4:3 aspect, video badge, hover overlay with filename + delete button
+- `GalleryPage`: responsive grid (2/3/4 cols), loading skeletons, empty state, error state, media count
+- `UploadPage`: drag-and-drop zone, file picker, uploading spinner, success state with "Upload more" / "View Gallery"
+- `SettingsPage`: interval slider (3-60s), transition type toggle buttons, photo order toggle buttons, instant save
+- Apple-like styling throughout: rounded-2xl, shadows, system fonts, smooth transitions
+- 27 frontend tests: 3 hook tests (usePhotos, useSettings), 6 ConfirmDialog, 5 PhotoCard, 3 Navbar, 4 GalleryPage, 3 SettingsPage
+- TypeScript compiles clean with `vitest/globals` types
+
+**Test breakdown:**
+- `usePhotos.test.ts` (3) — fetch on mount, error handling, delete + refetch
+- `useSettings.test.ts` (3) — fetch on mount, update + saved flag, error handling
+- `ConfirmDialog.test.tsx` (6) — closed state, open rendering, confirm click, cancel click, escape key, custom label
+- `PhotoCard.test.tsx` (5) — thumbnail render, video badge, no badge for photos, delete flow, cancel flow
+- `Navbar.test.tsx` (3) — title, links, mobile menu toggle
+- `GalleryPage.test.tsx` (4) — loading skeletons, empty state, photo grid, error state
+- `SettingsPage.test.tsx` (3) — loading state, controls rendering, update on click
+
+**Verified:** `docker compose exec frontend npm test` → 27 passed, `npx tsc --noEmit` → clean
+
+**Decisions:**
+- Added `"types": ["vitest/globals"]` to tsconfig.json so tsc recognizes test globals
+- Settings updates are instant (no save button) — each control change fires API call immediately
+- Upload page shows success state with navigation options after upload completes
+
+---
+
+## Phase 4 — CURRENT: Slideshow + Touch + Live Updates
 
 ### Definition of Done
-- [ ] Typed API client (`frontend/src/api/client.ts`) with fetch wrapper
-- [ ] `usePhotos` hook: fetch media list, upload, delete (with optimistic updates or refetch)
-- [ ] `useSettings` hook: fetch settings, update
-- [ ] Navbar: responsive with active route highlighting (already exists — verify)
-- [ ] GalleryPage: photo/video grid using thumbnails, PhotoCard component, delete with ConfirmDialog
-- [ ] UploadPage: drag-drop + file picker, multi-file, upload progress indicator
-- [ ] SettingsPage: interval slider, transition/order dropdowns, save with toast/feedback
-- [ ] Apple-like styling: white space, rounded corners, shadows, transitions, frosted glass
-- [ ] Hook tests: usePhotos, useSettings (mocked API)
-- [ ] Component tests: PhotoCard, ConfirmDialog, pages
-- [ ] `./scripts/test-frontend.sh` passes clean
+- [ ] `useWebSocket` hook: auto-connect, auto-reconnect, event dispatch
+- [ ] `useGestures` hook: swipe left/right, single tap, long press via @use-gesture/react
+- [ ] `SlideshowPage`: fullscreen display, preload next image, CSS crossfade transition, auto-advance timer
+- [ ] Video playback: `<video autoplay muted>`, freeze on last frame, same blur background
+- [ ] Blur background effect: blurred cover behind contained image/video (CSS only)
+- [ ] `SlideshowOverlay`: frosted glass bottom sheet, interval slider, transition/order toggles, pause/play, "Manage Photos" link
+- [ ] Touch gestures wired: swipe nav, tap overlay toggle, long-press pause
+- [ ] WebSocket wired: live photo list updates (add/delete), settings sync
+- [ ] Tests: slideshow logic, gesture handlers, overlay, WebSocket hook
+- [ ] `./scripts/test-frontend.sh` passes clean (all 27 existing + new tests)
 
 ### Ordered Task List
 
-1. **API client** (`frontend/src/api/client.ts`)
-   - Typed fetch wrapper: `get<T>`, `post<T>`, `put<T>`, `del`
-   - Types matching backend schemas: `Media`, `MediaList`, `Settings`, `SettingsUpdate`
+1. **useWebSocket hook** (`frontend/src/hooks/useWebSocket.ts`)
+   - Connect to `ws://host/ws`, auto-reconnect on disconnect
+   - Parse JSON messages, expose `lastEvent` or callback pattern
+   - Clean disconnect on unmount
 
-2. **usePhotos hook** (`frontend/src/hooks/usePhotos.ts`)
-   - `photos`, `total`, `loading`, `error` state
-   - `fetchPhotos(page?)`, `uploadFiles(files)`, `deletePhoto(id)` actions
-   - Auto-fetch on mount
+2. **useGestures hook** (`frontend/src/hooks/useGestures.ts`)
+   - Wrap @use-gesture/react for slideshow: swipe left/right, tap, long press
+   - Return bind function for gesture target element
 
-3. **useSettings hook** (`frontend/src/hooks/useSettings.ts`)
-   - `settings`, `loading`, `error` state
-   - `fetchSettings()`, `updateSettings(partial)` actions
-   - Auto-fetch on mount
+3. **SlideshowPage** — fullscreen rewrite
+   - Fetch media list, handle empty state
+   - Current slide index, auto-advance timer based on settings
+   - CSS crossfade between current and next slide
+   - Blur background effect (bg: cover+blur, fg: contain)
+   - Photo: `<img>`, Video: `<video autoplay muted>`
 
-4. **ConfirmDialog component** (`frontend/src/components/ConfirmDialog.tsx`)
-   - Modal with frosted glass backdrop
-   - Title, message, confirm/cancel buttons
-   - Accessible (focus trap, escape to close)
+4. **SlideshowOverlay** (`frontend/src/components/SlideshowOverlay.tsx`)
+   - Frosted glass bottom sheet (backdrop-blur)
+   - Controls: interval slider, transition/order toggles, pause/play
+   - "Manage Photos" link to gallery
+   - Auto-hide after 5s of inactivity
 
-5. **PhotoCard component** (`frontend/src/components/PhotoCard.tsx`)
-   - Thumbnail display with rounded corners
-   - Media type badge (photo/video)
-   - Delete button with ConfirmDialog
-   - Filename overlay on hover
+5. **Wire gestures + overlay + WebSocket**
+   - Swipe left → next, swipe right → previous
+   - Tap → toggle overlay
+   - Long press → pause/resume
+   - WebSocket media_added/deleted → refresh media list
+   - WebSocket settings_changed → update slideshow behavior
 
-6. **GalleryPage** — full implementation
-   - Responsive grid of PhotoCards
-   - Empty state with upload link (already exists)
-   - Loading skeleton
-   - Pagination or infinite scroll
+6. **Tests for new functionality**
+   - useWebSocket hook tests
+   - useGestures hook tests
+   - SlideshowOverlay component tests
+   - Slideshow logic tests (advance, pause, video handling)
 
-7. **UploadPage** — full implementation
-   - Drag-and-drop zone
-   - File picker button
-   - Multi-file support
-   - Upload progress per file
-   - Success/error feedback
-
-8. **SettingsPage** — full implementation
-   - Interval slider (5-60s)
-   - Transition type dropdown
-   - Photo order dropdown
-   - Save button with success toast
-
-9. **Component + hook tests** (`frontend/src/__tests__/`)
-   - Hook tests with mocked fetch
-   - Component render tests
-   - User interaction tests (click, type, drag)
-
-10. **Verify & update state**
-    - Run `./scripts/test-frontend.sh` — all green
-    - Update this file, git commit
+7. **Verify & update state**
 
 ---
-
-## Phase 4 — Pending: Slideshow + Touch + Live Updates
-
-Fullscreen slideshow with crossfade, video playback, touch gestures (@use-gesture), WebSocket live updates, on-screen settings overlay.
 
 ## Phase 5 — Pending: E2E Tests + Docker Polish
 
