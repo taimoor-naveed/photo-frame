@@ -51,6 +51,30 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **Videos auto-play muted**, show first frame when ended with interval remaining
 - **No flash on add/delete**: playlist + currentIndex update atomically via combined state object
 
+## Test Rules
+
+- **Assert identity, not existence.** Never write `expect(items.length).toBeGreaterThan(0)`. Always verify *which* item is shown, not just *that something* rendered. Use `data-media-id`, `data-testid`, or specific field values.
+- **Cross-boundary integration tests are mandatory.** When adding a backend event or API change, write at least one test that sends a real message from the backend and asserts the frontend receives it with correct field names. TypeScript `as` casts hide mismatches — don't rely on them at system boundaries.
+- **Convert spec bullets to test stubs first.** Before building a feature, read the spec, write failing test stubs for each behavior, then implement. This prevents "tests that pass with bugs."
+- **E2E for complex stateful UI.** Unit tests with mocked timers and `act()` don't catch re-render cascades or unstable refs. For slideshow-like features, write E2E tests first.
+- **Use `/test-writer` skill** when writing tests to enforce these patterns automatically.
+
+## React Patterns
+
+- **Never put function references in `useEffect` deps.** Use `useRef` for callbacks (the `goNextRef` pattern). Function references are recreated on re-render and cause effect cascades.
+- **Atomic state for coupled values.** Values that must update together (e.g. `playlist` + `currentIndex`) go in a single `useState` object. Separate `useState` calls can render independently and cause flash/glitch.
+- **Primitive deps over object deps.** Use `settings?.slideshow_interval` (number) instead of `settings` (object) in effect deps. New object references trigger effects even when values haven't changed.
+- **No third-party gesture libraries.** Raw `onPointerDown`/`onPointerUp` for tap zones and long press. Libraries add indirection that conflicts with simple interaction models.
+- **Design async from day one.** If any operation can take >1s (ffmpeg, large upload, external API), architect it as background + status tracking from the start. Retrofitting async is always a multi-file rework.
+
+## Known Gotchas
+
+- **Playwright `toBeVisible()` vs `toBeInViewport()`**: CSS `translate-y-full` hides elements off-screen but they're still "visible" to Playwright. Use `not.toBeInViewport()` for overlay hide assertions.
+- **H.264 in headless Chromium**: Does not play. Use VP8/WebM (`ffmpeg -c:v libvpx`) for test videos.
+- **WebSocket event format**: Backend sends `{"type": ..., "payload": ...}` to match frontend `WsEvent` interface. Any mismatch is silent (TypeScript `as` cast swallows it).
+- **File input clearing**: Some browsers invalidate `File` objects when `input.value = ""` — copy files to array first.
+- **StrictMode double-fetch**: React 19 StrictMode double-invokes effects, causing duplicate fetches. Use refs (e.g. `initialBuildDone`) to guard one-time operations.
+
 ## Run & Test
 
 ```bash
