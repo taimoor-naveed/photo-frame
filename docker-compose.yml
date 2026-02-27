@@ -28,5 +28,16 @@ services:
       - VITE_API_URL=http://backend:8000
     restart: unless-stopped
 
+  e2e:
+    build:
+      context: ./e2e
+      dockerfile: Dockerfile
+    depends_on:
+      - frontend
+    environment:
+      - BASE_URL=http://frontend:5173
+    profiles:
+      - test
+
 volumes:
   backend-data:
