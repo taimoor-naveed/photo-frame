@@ -13,6 +13,8 @@ class MediaOut(BaseModel):
     file_size: int
     duration: float | None = None
     codec: str | None = None
+    thumb_filename: str
+    transcoded_filename: str | None = None
     uploaded_at: datetime
 
     model_config = {"from_attributes": True}

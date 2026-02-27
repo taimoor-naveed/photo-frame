@@ -18,6 +18,8 @@ class Media(Base):
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     duration: Mapped[float | None] = mapped_column(Float, nullable=True)  # seconds, video only
     codec: Mapped[str | None] = mapped_column(String, nullable=True)  # video codec
+    thumb_filename: Mapped[str] = mapped_column(String, nullable=False)
+    transcoded_filename: Mapped[str | None] = mapped_column(String, nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )

@@ -5,8 +5,8 @@
 | Phase | Description                          | Status       |
 |-------|--------------------------------------|--------------|
 | 1     | Foundation (Docker, scaffolding, DB) | **COMPLETE** |
-| 2     | Backend API + WebSocket + Tests      | **CURRENT**  |
-| 3     | Frontend Management UI + Tests       | Pending      |
+| 2     | Backend API + WebSocket + Tests      | **COMPLETE** |
+| 3     | Frontend Management UI + Tests       | **CURRENT**  |
 | 4     | Slideshow + Touch + Live Updates     | Pending      |
 | 5     | E2E Tests + Docker Polish            | Pending      |
 
@@ -23,8 +23,6 @@
 - Test runner scripts (stubs)
 - CLAUDE.md + docs/SPEC.md + docs/STATE.md
 
-**Verified:** `docker compose up` → both services start, `GET /api/health` → `{"status":"ok"}`, frontend serves React app on :5173
-
 **Decisions:**
 - Sync SQLAlchemy (not async) — sufficient for 2-3 users
 - No package-lock.json committed — generated in container at build
@@ -32,79 +30,108 @@
 
 ---
 
-## Phase 2 — CURRENT: Backend API + WebSocket + Tests
+## Phase 2 — COMPLETE: Backend API + WebSocket + Tests
 
-### Definition of Done
-- [ ] `POST /api/media` handles multi-file upload, stores originals, creates thumbnail (Pillow for photos, ffmpeg for videos), transcodes HEVC→H.264, inserts DB rows
-- [ ] `GET /api/media` returns paginated list with media metadata (page, per_page query params)
-- [ ] `GET /api/media/{id}` returns single media item metadata
-- [ ] `DELETE /api/media/{id}` removes DB row + original + thumbnail + transcoded files
-- [ ] `GET /api/settings` returns settings (creates default row if missing)
-- [ ] `PUT /api/settings` updates settings (partial update)
-- [ ] Static file serving works for `/uploads/originals/`, `/uploads/thumbnails/`, `/uploads/transcoded/`
-- [ ] WebSocket broadcasts `media_added` on upload, `media_deleted` on delete, `settings_changed` on settings update
-- [ ] Unit tests: image service (EXIF rotation, thumbnail), video service (metadata, thumbnail, transcode)
-- [ ] Integration tests: all media endpoints (photo + video), all settings endpoints, WebSocket broadcast
-- [ ] `./scripts/test-backend.sh` passes clean
+**What was done:**
+- Image service: EXIF auto-rotate (ImageOps.exif_transpose), thumbnail generation (300px max), RGB conversion
+- Video service: ffprobe metadata, thumbnail at 25% duration, HEVC→H.264 transcode detection
+- Media router: multi-file upload (POST), paginated list (GET), get by ID, delete with file cleanup
+- Settings router: get with auto-create defaults, partial update (PUT)
+- Uploads router: FileResponse-based file serving for originals/thumbnails/transcoded
+- WebSocket events: media_added, media_deleted, settings_changed broadcast on mutations
+- Full test suite: 40 tests (18 unit + 22 integration), all passing
 
-### Ordered Task List
+**Test breakdown:**
+- `tests/unit/test_image_service.py` (5) — basic processing, thumbnail size, EXIF rotation, PNG, HEIC
+- `tests/unit/test_video_service.py` (5) — metadata, invalid file, thumbnail, transcode check, full processing
+- `tests/unit/test_models.py` (3) — media creation, video fields, settings defaults
+- `tests/unit/test_schemas.py` (5) — serialization, video fields, settings, partial update, empty update
+- `tests/integration/test_media_api.py` (14) — upload photo/png/video, multi-file, invalid, list, pagination, get, 404, delete, file serving
+- `tests/integration/test_settings_api.py` (4) — defaults, full update, partial update, persistence
+- `tests/integration/test_websocket.py` (4) — connect, media_added, media_deleted, settings_changed
 
-1. **Image service** (`backend/app/services/image.py`)
-   - `process_image(file) → (saved_path, thumb_path, width, height)`
-   - EXIF auto-rotate with `ImageOps.exif_transpose()`
-   - Thumbnail: 300px max dimension, JPEG output
+**Verified:** `docker compose exec backend pytest tests/ -v` → 40 passed in 1.53s
 
-2. **Video service** (`backend/app/services/video.py`)
-   - `get_video_metadata(path) → (duration, width, height, codec)`
-   - `generate_video_thumbnail(path) → thumb_path` (snapshot at 25% duration)
-   - `transcode_to_h264(path) → transcoded_path` (only if HEVC)
-
-3. **Media router — upload** (`backend/app/routers/media.py`)
-   - `POST /api/media` accepting `UploadFile` list
-   - Route to image or video service based on extension
-   - UUID filenames, preserve original_name
-   - Return list of created MediaOut
-
-4. **Media router — list, get, delete** (`backend/app/routers/media.py`)
-   - `GET /api/media?page=1&per_page=20` — paginated, ordered by uploaded_at desc
-   - `GET /api/media/{id}` — 404 if not found
-   - `DELETE /api/media/{id}` — remove DB row + all files on disk
-
-5. **Settings router** (`backend/app/routers/settings.py`)
-   - `GET /api/settings` — return settings, auto-create default row if missing
-   - `PUT /api/settings` — partial update, validate values
-
-6. **WebSocket events** (`backend/app/routers/media.py`, `settings.py`)
-   - Broadcast `{"event": "media_added", "data": {...}}` after upload
-   - Broadcast `{"event": "media_deleted", "data": {"id": ...}}` after delete
-   - Broadcast `{"event": "settings_changed", "data": {...}}` after settings update
-
-7. **Test fixtures** (`backend/tests/conftest.py`)
-   - Test database (in-memory or temp file SQLite)
-   - Test client (httpx AsyncClient or TestClient)
-   - Temp directories for uploads
-   - Sample test images (small JPEG, PNG with EXIF)
-
-8. **Unit tests** (`backend/tests/unit/`)
-   - `test_image_service.py` — EXIF rotation, thumbnail generation, dimensions
-   - `test_video_service.py` — metadata extraction, thumbnail, transcode
-   - `test_models.py` — model creation, defaults
-   - `test_schemas.py` — serialization, validation
-
-9. **Integration tests** (`backend/tests/integration/`)
-   - `test_media_api.py` — upload photo, upload video, list, get, delete, invalid files
-   - `test_settings_api.py` — get defaults, update, partial update
-   - `test_websocket.py` — connect, receive broadcast on media/settings changes
-
-10. **Verify & update state**
-    - Run `./scripts/test-backend.sh` — all green
-    - Update this file, git commit
+**Decisions:**
+- Replaced StaticFiles mounts with FileResponse router (`uploads.py`) for testability
+- All services/routers read paths from `app.config` at call time (not import time) — enables monkeypatch in tests
+- Added `thumb_filename` and `transcoded_filename` columns to Media model (not in original plan but needed to serve/delete files)
+- Added `piexif` to dev deps for EXIF rotation tests
+- Added `./backend/tests` volume mount to docker-compose.yml for hot-reloading tests
 
 ---
 
-## Phase 3 — Pending: Frontend Management UI + Tests
+## Phase 3 — CURRENT: Frontend Management UI + Tests
 
-Implement gallery grid, upload with drag-drop + progress, settings page, all with Apple-like styling. Hook + component tests.
+### Definition of Done
+- [ ] Typed API client (`frontend/src/api/client.ts`) with fetch wrapper
+- [ ] `usePhotos` hook: fetch media list, upload, delete (with optimistic updates or refetch)
+- [ ] `useSettings` hook: fetch settings, update
+- [ ] Navbar: responsive with active route highlighting (already exists — verify)
+- [ ] GalleryPage: photo/video grid using thumbnails, PhotoCard component, delete with ConfirmDialog
+- [ ] UploadPage: drag-drop + file picker, multi-file, upload progress indicator
+- [ ] SettingsPage: interval slider, transition/order dropdowns, save with toast/feedback
+- [ ] Apple-like styling: white space, rounded corners, shadows, transitions, frosted glass
+- [ ] Hook tests: usePhotos, useSettings (mocked API)
+- [ ] Component tests: PhotoCard, ConfirmDialog, pages
+- [ ] `./scripts/test-frontend.sh` passes clean
+
+### Ordered Task List
+
+1. **API client** (`frontend/src/api/client.ts`)
+   - Typed fetch wrapper: `get<T>`, `post<T>`, `put<T>`, `del`
+   - Types matching backend schemas: `Media`, `MediaList`, `Settings`, `SettingsUpdate`
+
+2. **usePhotos hook** (`frontend/src/hooks/usePhotos.ts`)
+   - `photos`, `total`, `loading`, `error` state
+   - `fetchPhotos(page?)`, `uploadFiles(files)`, `deletePhoto(id)` actions
+   - Auto-fetch on mount
+
+3. **useSettings hook** (`frontend/src/hooks/useSettings.ts`)
+   - `settings`, `loading`, `error` state
+   - `fetchSettings()`, `updateSettings(partial)` actions
+   - Auto-fetch on mount
+
+4. **ConfirmDialog component** (`frontend/src/components/ConfirmDialog.tsx`)
+   - Modal with frosted glass backdrop
+   - Title, message, confirm/cancel buttons
+   - Accessible (focus trap, escape to close)
+
+5. **PhotoCard component** (`frontend/src/components/PhotoCard.tsx`)
+   - Thumbnail display with rounded corners
+   - Media type badge (photo/video)
+   - Delete button with ConfirmDialog
+   - Filename overlay on hover
+
+6. **GalleryPage** — full implementation
+   - Responsive grid of PhotoCards
+   - Empty state with upload link (already exists)
+   - Loading skeleton
+   - Pagination or infinite scroll
+
+7. **UploadPage** — full implementation
+   - Drag-and-drop zone
+   - File picker button
+   - Multi-file support
+   - Upload progress per file
+   - Success/error feedback
+
+8. **SettingsPage** — full implementation
+   - Interval slider (5-60s)
+   - Transition type dropdown
+   - Photo order dropdown
+   - Save button with success toast
+
+9. **Component + hook tests** (`frontend/src/__tests__/`)
+   - Hook tests with mocked fetch
+   - Component render tests
+   - User interaction tests (click, type, drag)
+
+10. **Verify & update state**
+    - Run `./scripts/test-frontend.sh` — all green
+    - Update this file, git commit
+
+---
 
 ## Phase 4 — Pending: Slideshow + Touch + Live Updates
 

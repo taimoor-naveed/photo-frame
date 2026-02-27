@@ -38,6 +38,8 @@ media:
   file_size   INTEGER NOT NULL        -- bytes
   duration    REAL                    -- seconds, NULL for photos
   codec       TEXT                    -- original codec, NULL for photos
+  thumb_filename TEXT NOT NULL        -- thumbnail filename in thumbnails/
+  transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
   uploaded_at DATETIME NOT NULL       -- UTC
 
 settings:
