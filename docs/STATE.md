@@ -1,276 +1,67 @@
 # Photo Frame — Project State
 
-## Phase Overview
+## Current Status: Feature-Complete MVP
 
-| Phase | Description                          | Status       |
-|-------|--------------------------------------|--------------|
-| 1     | Foundation (Docker, scaffolding, DB) | **COMPLETE** |
-| 2     | Backend API + WebSocket + Tests      | **COMPLETE** |
-| 3     | Frontend Management UI + Tests       | **COMPLETE** |
-| 4     | Slideshow + Touch + Live Updates     | **COMPLETE** |
-| 5     | E2E Tests + Docker Polish            | **COMPLETE** |
+All core features implemented and tested. Ready for manual QA and RPi deployment.
 
----
+## Test Counts
 
-## Phase 1 — COMPLETE
+| Suite | Tests | Status |
+|-------|-------|--------|
+| Backend (pytest) | 43 | All passing |
+| Frontend (vitest) | 41 | All passing |
+| E2E (playwright) | 55 (3 skipped) | All passing |
+| **Total** | **~139** | **Green** |
 
-**What was done:**
-- Git repo initialized with .gitignore
-- Docker Compose: backend (Python 3.12 + FastAPI) + frontend (Node 20 + Vite)
-- Backend skeleton: health endpoint, SQLAlchemy models (Media, Settings), WebSocket manager, Pydantic schemas, router/service stubs
-- Frontend skeleton: React 19 + TS + Tailwind, responsive Navbar, 4 placeholder pages
-- Vite proxy config for /api, /uploads, /ws
-- Test runner scripts (stubs)
-- CLAUDE.md + docs/SPEC.md + docs/STATE.md
+E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-only / desktop-only).
 
 ---
 
-## Phase 2 — COMPLETE: Backend API + WebSocket + Tests
+## What's Built
 
-**What was done:**
-- Image service: EXIF auto-rotate, thumbnail generation (300px), RGB conversion
-- Video service: ffprobe metadata, thumbnail at 25%, HEVC→H.264 transcode
-- Media router: multi-file upload, paginated list, get by ID, delete with file cleanup
-- Settings router: get with auto-create defaults, partial update
-- Uploads router: FileResponse-based file serving
-- WebSocket events: media_added, media_deleted, settings_changed
-- Full test suite: 40 tests (18 unit + 22 integration), all passing
+### Backend
+- **Media API**: upload (multi-file), list (paginated), get, delete with file cleanup
+- **Settings API**: get with auto-create defaults, partial update
+- **Video processing**: two-phase upload — fast save + background ffmpeg transcode in thread
+- **Smart transcoding**: only non-browser codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
+- **Progress tracking**: ffmpeg `-progress pipe:1` parsed in real-time, broadcast via WebSocket
+- **Duplicate detection**: SHA-256 content hash, returns existing item if duplicate
+- **WebSocket**: real-time events for media_added, media_deleted, media_processing_complete, media_processing_progress, settings_changed
+- **File serving**: originals, thumbnails, transcoded videos via FileResponse
 
-**Decisions:**
-- Replaced StaticFiles mounts with FileResponse router for testability
-- All services read paths from `app.config` at call time (not import time)
-- Added `thumb_filename` and `transcoded_filename` to Media model
+### Frontend
+- **Gallery**: responsive grid, photo cards with hover delete, processing overlay (iPhone-style circular progress), error state
+- **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
+- **Settings**: interval slider (3-60s), transition type toggle, photo order toggle, instant save
+- **Slideshow**: fullscreen with blur background effect, crossfade/slide/none transitions, auto-advance timer
+- **Navigation**: tap right/left halves, arrow keys, long press for overlay, space to pause, escape to close overlay
+- **Video**: autoplay muted, waits for long videos to finish, shows first frame when ended with interval remaining
+- **Live updates**: WebSocket-driven — add/delete/process events update gallery and slideshow in real-time without flash
+- **Playlist state**: combined `{playlist, currentIndex}` state object for atomic updates (prevents flash on add/delete)
 
----
-
-## Phase 3 — COMPLETE: Frontend Management UI + Tests
-
-**What was done:**
-- API client (`api/client.ts`): typed fetch wrapper, `api.media.*` and `api.settings.*` methods, `thumbnailUrl()` / `originalUrl()` helpers
-- `usePhotos` hook: fetch, upload, delete with auto-refetch
-- `useSettings` hook: fetch, update with "Saved" toast state (auto-clears after 2s)
-- `ConfirmDialog` component: frosted glass modal, escape-to-close, focus management
-- `PhotoCard` component: thumbnail with 4:3 aspect, video badge, hover overlay with filename + delete button
-- `GalleryPage`: responsive grid (2/3/4 cols), loading skeletons, empty state, error state, media count
-- `UploadPage`: drag-and-drop zone, file picker, uploading spinner, success state with "Upload more" / "View Gallery"
-- `SettingsPage`: interval slider (3-60s), transition type toggle buttons, photo order toggle buttons, instant save
-- Apple-like styling throughout: rounded-2xl, shadows, system fonts, smooth transitions
-- 27 frontend tests: 3 hook tests (usePhotos, useSettings), 6 ConfirmDialog, 5 PhotoCard, 3 Navbar, 4 GalleryPage, 3 SettingsPage
-- TypeScript compiles clean with `vitest/globals` types
-
-**Test breakdown:**
-- `usePhotos.test.ts` (3) — fetch on mount, error handling, delete + refetch
-- `useSettings.test.ts` (3) — fetch on mount, update + saved flag, error handling
-- `ConfirmDialog.test.tsx` (6) — closed state, open rendering, confirm click, cancel click, escape key, custom label
-- `PhotoCard.test.tsx` (5) — thumbnail render, video badge, no badge for photos, delete flow, cancel flow
-- `Navbar.test.tsx` (3) — title, links, mobile menu toggle
-- `GalleryPage.test.tsx` (4) — loading skeletons, empty state, photo grid, error state
-- `SettingsPage.test.tsx` (3) — loading state, controls rendering, update on click
-
-**Verified:** `docker compose exec frontend npm test` → 27 passed, `npx tsc --noEmit` → clean
-
-**Decisions:**
-- Added `"types": ["vitest/globals"]` to tsconfig.json so tsc recognizes test globals
-- Settings updates are instant (no save button) — each control change fires API call immediately
-- Upload page shows success state with navigation options after upload completes
+### Infrastructure
+- Docker Compose: backend + frontend + e2e (test profile)
+- Production config: `docker-compose.prod.yml` with nginx frontend, multi-worker uvicorn
+- Test scripts: `test-all.sh` (fail-early: frontend → backend unit → backend integration → e2e)
 
 ---
 
-## Phase 4 — COMPLETE: Slideshow + Touch + Live Updates
+## Architecture Decisions
 
-**What was done:**
-- `useWebSocket` hook: auto-connect to `ws://host/ws`, auto-reconnect (2s delay), JSON event parsing, callback pattern via `onEvent`, clean disconnect on unmount
-- `useGestures` hook: wraps `@use-gesture/react` `useDrag` for swipe left/right, tap detection via `filterTaps`, long press via manual timer (500ms) — **later replaced by tap zones in post-Phase 5 rework**
-- `SlideshowPage` fullscreen rewrite:
-  - Fetches media list + settings via `Promise.all`, loading spinner, empty state with upload link
-  - Playlist ordering: random (Fisher-Yates shuffle), sequential, newest
-  - Auto-advance timer based on `slideshow_interval` setting, pauses when `paused` state
-  - CSS crossfade/slide transitions between current and previous slide
-  - Blur background effect: `object-cover` + `blur(30px)` + `brightness(0.7)` + `scale(1.2)` background, `object-contain` foreground
-  - Photo: `<img>`, Video: `<video autoplay muted>` (freezes on last frame naturally)
-  - Preloads next image for smooth transitions
-  - Keyboard support: ArrowLeft/Right, Space (pause), Escape (close overlay)
-- `SlideshowOverlay` component: frosted glass bottom sheet (`bg-black/60 backdrop-blur-xl`), interval slider, transition/order toggle buttons, pause/play with SVG icons, "Manage Photos" link, auto-hide after 5s
-- Touch gestures wired: swipe left → next, swipe right → prev, tap → toggle overlay, long press → pause/resume — **later replaced by tap zones + long press in post-Phase 5 rework**
-- WebSocket wired: `media_added`/`media_deleted` → refetch media list, `settings_changed` → update slideshow settings in real-time — **WS field names fixed in post-Phase 5 (`event`/`data` → `type`/`payload`)**
-- 17 new tests (44 total): 4 useWebSocket, 3 useGestures, 6 SlideshowOverlay, 4 SlideshowPage
-
-**Test breakdown (new):**
-- `useWebSocket.test.ts` (4) — connect on mount, onEvent callback, auto-reconnect, cleanup on unmount
-- `useGestures.test.ts` (3) — returns bind/cleanup functions, bind returns handler props, works with no callbacks
-- `SlideshowOverlay.test.tsx` (6) — renders controls, Play/Pause toggle, onTogglePause, transition update, order update, hidden state
-- `SlideshowPage.test.tsx` (4) — loading spinner, empty state, renders first photo, pause indicator on space key
-
-**Verified:** `docker compose exec frontend npm test` → 44 passed, `npx tsc --noEmit` → clean
-
-**Decisions:**
-- `useLongPress` not exported from `@use-gesture/react` — implemented long press via `setTimeout` within `useDrag` handler
-- WebSocket mock tests use `vi.stubGlobal("WebSocket", MockWS)` in `beforeEach` + `act(async => renderHook)` pattern for proper effect flushing
-- SlideshowPage fetches all media (up to 1000) in one call for playlist — no pagination needed for slideshow
-- Overlay auto-hide timer resets on settings changes (user interaction keeps it visible)
+- **Sync SQLAlchemy** — no async overhead for 2-3 concurrent users
+- **Background thread for ffmpeg** — upload returns immediately, transcode happens async
+- **Combined slide state** — `{playlist, currentIndex}` in single useState to prevent flash when playlist changes
+- **Tap zones over swipe gestures** — simpler, more reliable on touch screens
+- **VP8/WebM for E2E video tests** — H.264 doesn't play in headless Chromium (Playwright Docker)
+- **Thumbnail for video blur background** — uses `<img>` instead of second `<video>` to halve resource usage
 
 ---
 
-## Phase 5 — COMPLETE: E2E Tests + Docker Polish
+## Known Limitations / Future Work
 
-**What was done:**
-- Playwright config: Chromium, desktop (Desktop Chrome) + mobile (Pixel 5) viewports, serial execution
-- E2E Dockerfile: `mcr.microsoft.com/playwright:v1.49.0-noble`, pinned to exact version match
-- E2E fixtures (`base.ts`): API helpers (delete all media, reset settings, upload, get media/settings), programmatic PNG generation (valid 2x2 red PNG with IHDR/IDAT/IEND chunks + CRC32), `cleanState` auto-fixture cleans DB before each test
-- E2E service added to `docker-compose.yml` with `profiles: ["test"]`, depends on frontend
-- 6 E2E test suites (42 tests total, 39 pass, 3 appropriately skipped):
-  - `gallery.spec.ts` (4): empty state, upload link nav, upload via file picker, delete with confirm dialog
-  - `upload.spec.ts` (3): page renders, upload via file picker, upload more resets form
-  - `settings.spec.ts` (4): renders controls, change transition, change order, persist across reload
-  - `slideshow.spec.ts` (4): empty state redirect, blur background effect, space key pause toggle, click overlay toggle
-  - `responsive.spec.ts` (4): hamburger on mobile, nav links on desktop, mobile menu navigation, viewport loads
-  - `live-update.spec.ts` (2): gallery refresh after API upload, settings sync via WebSocket overlay
-- Production Docker config:
-  - `docker-compose.prod.yml`: backend (2 uvicorn workers, no reload) + frontend (nginx on port 80)
-  - `backend/Dockerfile.prod`: production uvicorn with 2 workers
-  - `frontend/Dockerfile.prod`: multi-stage build (Node → nginx:alpine)
-  - `frontend/nginx.conf`: proxies /api/, /uploads/, /ws to backend, SPA fallback, static asset caching
-- Updated test scripts: `test-e2e.sh` uses `--profile test`, `test-all.sh` runs E2E → backend → frontend in fail-early order
-- Added `data-testid="photo-card"` to PhotoCard for E2E targeting
-- Added `allowedHosts: true` to Vite config for cross-container E2E access
-
-**Test breakdown:**
-- `gallery.spec.ts` (4) — empty state message, upload link navigation, upload via file picker shows in gallery, delete with hover + confirm dialog
-- `upload.spec.ts` (3) — page heading + button render, upload shows success, upload more resets
-- `settings.spec.ts` (4) — slider + toggles render, transition type change persists, order change persists, settings survive page reload
-- `slideshow.spec.ts` (4) — redirects when empty, blur bg layers present, space pauses/resumes, click toggles overlay
-- `responsive.spec.ts` (4) — mobile hamburger visible, desktop nav links visible, mobile menu opens + navigates, gallery loads at viewport
-- `live-update.spec.ts` (2) — API upload reflected after refresh, settings API change reflected in overlay
-
-**Verified:** `docker compose --profile test run --rm e2e npx playwright test` → 39 passed, 3 skipped (mobile/desktop exclusions)
-
-**Decisions:**
-- Playwright pinned to exact `1.49.0` — must match Docker image version, npm caret range resolved to incompatible 1.58.2
-- E2E API helpers call backend directly (`http://backend:8000`) — Vite proxy only works for browser requests
-- Test PNG generated programmatically (proper chunks + CRC32) — minimal hand-crafted JPEG was too incomplete for Pillow
-- Vite 6 requires `allowedHosts: true` for cross-container requests (returns 403 otherwise)
-
----
-
-## Post-Phase 5 — Slideshow Fixes + Bug Fixes
-
-### Slideshow Rework
-
-**Crossfade transition fix:**
-- Root cause: `goToSlide` set `prevIndex` + `currentIndex` simultaneously — new slide rendered at full opacity instantly, no transition.
-- Fix: Added `transitioning` state. On slide change, new slide renders at opacity 0, then after a double `requestAnimationFrame`, CSS transitions it to opacity 1. Previous slide stays visible underneath during the 500ms transition.
-- Slide transitions also work: new slide slides in from `translateX(100%)`, previous slides out to `translateX(-100%)`.
-
-**Video waits for completion:**
-- Root cause: auto-advance timer always fired after `slideshow_interval`, cutting videos short.
-- Fix: Added `waitingForVideo` ref. If current media is video with `duration > interval`, timer is skipped and `waitingForVideo` is set. On video `ended` event, `goNext()` fires.
-
-**Replaced gestures with tap zones:**
-- Removed `useGestures` hook usage from slideshow (hook still exists, unused).
-- New model: tap right half → next, tap left half → prev, long press (500ms) → toggle overlay.
-- Removed `touch-none` class so overlay controls work normally.
-- Keyboard shortcuts preserved (arrows, space, escape).
-
-### Bug Fixes
-
-**WebSocket field name mismatch (critical):**
-- Root cause: backend sent `{"event": ..., "data": ...}` but frontend `WsEvent` type expected `{"type": ..., "payload": ...}`. TypeScript `as` cast hid the mismatch at compile time, so `event.type` was always `undefined` at runtime — all WS events silently ignored.
-- Impact: new uploads didn't appear in slideshow, deleted photos kept cycling, settings changes from other clients ignored.
-- Fix: updated backend broadcasts in `media.py` and `settings.py` to use `type`/`payload`. Updated backend integration tests to match.
-
-**Settings overlay disappearing during interaction:**
-- Root cause: `onPointerDown` on the container bubbled through the overlay, triggering the 500ms long-press timer which toggled overlay off (e.g., when dragging the interval slider).
-- Fix: overlay now calls `stopPropagation()` on pointer/click events. Any interaction inside the overlay resets the 5s auto-hide timer via `onInteraction` callback. Clicking outside the overlay dismisses it.
-
-### Files Changed
-- `frontend/src/pages/SlideshowPage.tsx` — transitions, video wait, tap zones, overlay dismiss
-- `frontend/src/components/SlideshowOverlay.tsx` — stopPropagation, onInteraction
-- `backend/app/routers/media.py` — WS field names `type`/`payload`
-- `backend/app/routers/settings.py` — WS field names `type`/`payload`
-- `backend/tests/integration/test_websocket.py` — updated assertions
-- `e2e/Dockerfile` — added ffmpeg for test video generation
-- `e2e/fixtures/base.ts` — added `apiUploadTestVideo`, `apiDeleteMedia`, `testVideoPath` fixture, VP8/WebM test video generation
-- `e2e/tests/slideshow.spec.ts` — 7 new tests (tap right/left, long press overlay, video wait, WS add/delete live update)
-
-### Verified
-- `docker compose exec frontend npm test` → 44 passed
-- `docker compose exec backend python -m pytest tests/ -v` → 40 passed
-- `docker compose --profile test run --rm e2e npx playwright test tests/slideshow.spec.ts` → 18 passed (9 desktop + 9 mobile)
-
----
-
-## Video Upload, Processing & Reliability — COMPLETE
-
-**What was done:**
-
-### Schema Changes
-- Added `processing_status` column to Media model (`"processing"` | `"ready"` | `"error"`, default `"ready"`)
-- Added `content_hash` column (SHA-256, unique) for duplicate detection
-- Idempotent migration in `database.py` — `ALTER TABLE` + `CREATE UNIQUE INDEX` for existing DBs
-
-### Background Video Processing (Step 2)
-- Two-phase video upload: fast save (original + ffprobe + thumbnail) returns immediately, ffmpeg transcode runs in background `threading.Thread`
-- Smart transcoding: only non-browser-compatible codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
-- Background thread updates DB on completion/failure, broadcasts via `asyncio.run_coroutine_threadsafe`
-- New WebSocket events: `media_processing_complete`, `media_processing_error`
-
-### Upload Progress Bar (Step 3)
-- Replaced `fetch()` with `XMLHttpRequest` + `onProgress` callback in API client
-- Animated progress bar with percentage in UploadPage
-
-### Gallery — iPhone-style Processing State (Step 4)
-- Processing videos: dimmed thumbnail + centered spinner overlay + "Processing..." label
-- Error state: red tint + error icon + "Failed" label
-- `usePhotos` hook handles `media_processing_complete` (in-place update) and `media_processing_error` via WebSocket
-- Gallery gets live updates automatically — no changes needed in GalleryPage
-
-### Slideshow Error Handling + Thumbnail Blur (Step 5)
-- `handleVideoError` → `goNext()` unconditionally (never get stuck on broken video)
-- Replaced blur background `<video>` with `<img>` of thumbnail for videos — halves resource usage
-- Playlist filters out non-ready videos (`processing_status !== "ready"`)
-- Added `media_processing_complete` WS handler to add newly-ready videos to playlist
-
-### Upload Reliability (Step 6)
-- File input cleared after upload (`fileInputRef.current.value = ""`) — retry works
-- Content-hash dedup: SHA-256 hash checked before processing, returns existing item if duplicate
-- Upfront validation: all files checked (extension, size) before any processing begins
-
-### Tests Updated
-- Backend: 43 tests (unit + integration) — new tests for duplicate detection, H.264 immediate ready, HEVC background transcode flow
-- Frontend: 44 tests — updated mocks with `processing_status`/`content_hash`, MockWS for usePhotos
-- E2E: 49 passed, 3 skipped — unique uploads via `crypto.randomBytes(8)`, `apiWaitForProcessing()` helper
-
-### Files Changed
-- `backend/app/models.py` — `processing_status`, `content_hash` columns
-- `backend/app/schemas.py` — new fields in `MediaOut`
-- `backend/app/database.py` — idempotent migration
-- `backend/app/services/video.py` — `needs_transcode()` smart check, `save_video_original()` fast phase-1
-- `backend/app/routers/media.py` — two-phase upload, background transcode, dedup, upfront validation
-- `backend/tests/conftest.py` — monkeypatch `SessionLocal` for background threads
-- `backend/tests/integration/test_media_api.py` — duplicate detection, updated assertions
-- `backend/tests/integration/test_websocket.py` — H.264 ready, HEVC transcode flow, `sample_hevc_video` fixture
-- `backend/tests/unit/test_video_service.py` — updated for smart transcode
-- `frontend/src/api/client.ts` — XHR upload, `processing_status`/`content_hash` in `Media`
-- `frontend/src/hooks/useWebSocket.ts` — new event types
-- `frontend/src/hooks/usePhotos.ts` — `uploadProgress`, WS live updates
-- `frontend/src/components/PhotoCard.tsx` — processing/error overlays
-- `frontend/src/pages/UploadPage.tsx` — progress bar, file input clearing
-- `frontend/src/pages/SlideshowPage.tsx` — error handling, thumbnail blur, playlist filtering
-- `frontend/src/__tests__/*` — updated mocks across all test files
-- `e2e/fixtures/base.ts` — unique uploads, `apiWaitForProcessing()`, updated `MediaItem`
-- `e2e/tests/slideshow.spec.ts` — waits for processing before slideshow tests
-
-### Verified
-- `docker compose exec backend python -m pytest tests/ -v` → 43 passed
-- `docker compose exec frontend npm test` → 44 passed
-- `docker compose --profile test run --rm e2e npx playwright test` → 49 passed, 3 skipped
-
----
-
-## All Phases Complete
-
-**Total test counts:**
-- Backend: 43 tests (unit + integration)
-- Frontend: 44 unit tests
-- E2E: 49 passed, 3 skipped (mobile/desktop exclusions)
-- **Grand total: ~136 tests**
+- **No user auth** — single-user photo frame, no login needed
+- **No image editing** — crop, rotate, filters not implemented
+- **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale
+- **No HEIC photo support** — backend allows .heic extension but Pillow needs pillow-heif plugin
+- **RPi 3B performance** — blur(30px) effect may be heavy on old ARM GPU; consider reducing or disabling
+- **No offline mode** — requires network connection to backend

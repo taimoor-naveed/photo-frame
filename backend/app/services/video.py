@@ -1,6 +1,8 @@
 import json
+import re
 import subprocess
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from app import config
@@ -89,27 +91,83 @@ def transcode_to_h264(
     video_path: Path,
     output_filename: str,
     transcoded_dir: Path | None = None,
+    duration: float | None = None,
+    on_progress: Callable[[int], None] | None = None,
 ) -> Path:
-    """Transcode video to H.264 MP4."""
+    """Transcode video to H.264 MP4.
+
+    If *duration* and *on_progress* are provided, progress (0-100) is reported
+    via the callback by parsing ffmpeg ``-progress`` output.
+    """
     if transcoded_dir is None:
         transcoded_dir = config.TRANSCODED_DIR
 
     output_path = transcoded_dir / output_filename
+
+    if on_progress and duration and duration > 0:
+        return _transcode_with_progress(
+            video_path, output_path, duration, on_progress,
+        )
+
+    # Simple path — no progress tracking
     subprocess.run(
         [
-            "ffmpeg",
-            "-y",
+            "ffmpeg", "-y",
             "-i", str(video_path),
-            "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-movflags", "+faststart",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            "-c:a", "aac", "-movflags", "+faststart",
             str(output_path),
         ],
         capture_output=True,
         check=True,
     )
+    return output_path
+
+
+_TIME_RE = re.compile(r"out_time_ms=(\d+)")
+
+
+def _transcode_with_progress(
+    video_path: Path,
+    output_path: Path,
+    duration: float,
+    on_progress: Callable[[int], None],
+) -> Path:
+    """Run ffmpeg with ``-progress pipe:1`` and report percentage via callback."""
+    proc = subprocess.Popen(
+        [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            "-c:a", "aac", "-movflags", "+faststart",
+            "-progress", "pipe:1",
+            "-nostats",
+            str(output_path),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    duration_us = duration * 1_000_000
+    last_pct = -1
+
+    for line in proc.stdout:  # type: ignore[union-attr]
+        m = _TIME_RE.match(line.strip())
+        if m:
+            current_us = int(m.group(1))
+            pct = min(int(current_us / duration_us * 100), 99)
+            if pct > last_pct:
+                last_pct = pct
+                on_progress(pct)
+
+    proc.wait()
+    if proc.returncode != 0:
+        stderr = proc.stderr.read() if proc.stderr else ""  # type: ignore[union-attr]
+        raise subprocess.CalledProcessError(proc.returncode, "ffmpeg", stderr=stderr)
+
+    on_progress(100)
     return output_path
 
 
@@ -151,55 +209,4 @@ def save_video_original(
         "file_size": file_size,
         "duration": meta["duration"],
         "codec": meta["codec"],
-    }
-
-
-def process_video(
-    file_bytes: bytes,
-    original_name: str,
-    originals_dir: Path | None = None,
-    thumbnails_dir: Path | None = None,
-    transcoded_dir: Path | None = None,
-) -> dict:
-    """Process an uploaded video: save, extract metadata, thumbnail, transcode if needed.
-
-    Returns dict with: filename, width, height, file_size, duration, codec, thumb_filename, transcoded_filename
-    """
-    if originals_dir is None:
-        originals_dir = config.ORIGINALS_DIR
-    if thumbnails_dir is None:
-        thumbnails_dir = config.THUMBNAILS_DIR
-    if transcoded_dir is None:
-        transcoded_dir = config.TRANSCODED_DIR
-
-    ext = Path(original_name).suffix.lower()
-    filename = f"{uuid.uuid4()}{ext}"
-    thumb_filename = f"thumb_{uuid.uuid4()}.jpg"
-
-    # Save original
-    original_path = originals_dir / filename
-    original_path.write_bytes(file_bytes)
-    file_size = original_path.stat().st_size
-
-    # Extract metadata
-    meta = get_video_metadata(original_path)
-
-    # Generate thumbnail
-    generate_video_thumbnail(original_path, thumb_filename, thumbnails_dir)
-
-    # Transcode if needed
-    transcoded_filename = None
-    if needs_transcode(meta["codec"]):
-        transcoded_filename = f"{uuid.uuid4()}.mp4"
-        transcode_to_h264(original_path, transcoded_filename, transcoded_dir)
-
-    return {
-        "filename": filename,
-        "thumb_filename": thumb_filename,
-        "width": meta["width"],
-        "height": meta["height"],
-        "file_size": file_size,
-        "duration": meta["duration"],
-        "codec": meta["codec"],
-        "transcoded_filename": transcoded_filename,
     }

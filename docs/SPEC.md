@@ -21,8 +21,11 @@
 
 ### WebSocket
 `ws://host/ws` — JSON events with format `{"type": "<event>", "payload": {...}}`:
-- `media_added` — payload: full media object
+- `media_added` — payload: full media object (may have `processing_status: "processing"` for videos)
 - `media_deleted` — payload: `{"id": <media_id>}`
+- `media_processing_progress` — payload: `{"id": <media_id>, "progress": 0-100}`
+- `media_processing_complete` — payload: full media object (with `processing_status: "ready"`)
+- `media_processing_error` — payload: `{"id": <media_id>, "error": "<message>"}`
 - `settings_changed` — payload: full settings object
 
 ### Health
@@ -43,6 +46,8 @@ media:
   codec       TEXT                    -- original codec, NULL for photos
   thumb_filename TEXT NOT NULL        -- thumbnail filename in thumbnails/
   transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
+  processing_status TEXT NOT NULL DEFAULT 'ready'  -- 'processing' | 'ready' | 'error'
+  content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection
   uploaded_at DATETIME NOT NULL       -- UTC
 
 settings:
@@ -53,6 +58,7 @@ settings:
 ```
 
 No migrations — tables auto-created via `Base.metadata.create_all()`.
+New columns added via idempotent `ALTER TABLE` in `database.py`.
 
 ## Media Pipeline
 
@@ -64,13 +70,21 @@ No migrations — tables auto-created via `Base.metadata.create_all()`.
 5. Extract dimensions from rotated image
 6. Insert DB row, broadcast `media_added` via WebSocket
 
-### Video Upload
+### Video Upload (Two-Phase)
+**Phase 1 (synchronous — returns immediately):**
 1. Validate extension (mp4, mov, webm) + mime type
-2. `ffprobe` — extract duration, resolution, codec
-3. Generate thumbnail: snapshot at 25% of duration → `data/thumbnails/`
-4. If HEVC/H.265 → transcode to H.264 MP4 → `data/transcoded/`
-5. Save original → `data/originals/`
-6. Insert DB row, broadcast `media_added` via WebSocket
+2. SHA-256 content hash → skip if duplicate
+3. Save original → `data/originals/`
+4. `ffprobe` — extract duration, resolution, codec
+5. Generate thumbnail at 25% → `data/thumbnails/`
+6. Insert DB row with `processing_status="processing"` (or `"ready"` if no transcode needed)
+7. Broadcast `media_added` via WebSocket
+
+**Phase 2 (background thread — only if transcode needed):**
+1. `ffmpeg` transcode to H.264 MP4 with `-progress pipe:1`
+2. Parse progress, broadcast `media_processing_progress` events (throttled every 3%)
+3. On success: update DB to `"ready"`, broadcast `media_processing_complete`
+4. On failure: update DB to `"error"`, broadcast `media_processing_error`
 
 ### Supported Formats
 - **Photos**: .jpg, .jpeg, .png, .webp, .heic

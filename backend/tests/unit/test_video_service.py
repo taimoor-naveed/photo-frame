@@ -7,7 +7,7 @@ from app.services.video import (
     generate_video_thumbnail,
     get_video_metadata,
     needs_transcode,
-    process_video,
+    save_video_original,
 )
 
 
@@ -67,8 +67,8 @@ def test_needs_transcode():
     assert needs_transcode("av1") is False
 
 
-def test_process_video(tmp_dirs):
-    """End-to-end video processing."""
+def test_save_video_original(tmp_dirs):
+    """Phase 1: save original, extract metadata, generate thumbnail (no transcode)."""
     # Create a small video
     video_path = tmp_dirs["originals"] / "src.mp4"
     subprocess.run(
@@ -82,13 +82,12 @@ def test_process_video(tmp_dirs):
         check=True,
     )
     video_bytes = video_path.read_bytes()
-    video_path.unlink()  # remove source, process_video will save its own copy
+    video_path.unlink()  # remove source, save_video_original will save its own copy
 
-    result = process_video(
+    result = save_video_original(
         video_bytes, "clip.mp4",
         originals_dir=tmp_dirs["originals"],
         thumbnails_dir=tmp_dirs["thumbnails"],
-        transcoded_dir=tmp_dirs["transcoded"],
     )
 
     assert result["width"] == 160
@@ -96,6 +95,5 @@ def test_process_video(tmp_dirs):
     assert result["codec"] == "h264"
     assert result["duration"] > 0
     assert result["file_size"] > 0
-    assert result["transcoded_filename"] is None  # h264 is browser-compatible, no transcode
     assert (tmp_dirs["originals"] / result["filename"]).exists()
     assert (tmp_dirs["thumbnails"] / result["thumb_filename"]).exists()

@@ -40,7 +40,7 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 | Runtime config    | `backend/app/config.py`      |
 | DB schema         | `backend/app/models.py`      |
 | API routes        | `backend/app/routers/*.py`   |
-| Migrations        | None — auto-create via `Base.metadata.create_all()` |
+| Migrations        | None — auto-create + idempotent ALTER TABLE in `database.py` |
 
 ## Non-Negotiables
 
@@ -48,7 +48,8 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **Apple-inspired UI**: white space, rounded corners, frosted glass, system fonts, min 44px touch targets
 - **Photo-first**: UI fades into background, photos are the star
 - **Sync SQLAlchemy**: no async overhead for this traffic level
-- **Videos auto-play muted**, freeze on last frame, then hold for remaining slide duration
+- **Videos auto-play muted**, show first frame when ended with interval remaining
+- **No flash on add/delete**: playlist + currentIndex update atomically via combined state object
 
 ## Run & Test
 
