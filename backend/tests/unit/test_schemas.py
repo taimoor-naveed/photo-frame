@@ -44,7 +44,7 @@ def test_media_out_video():
 def test_settings_out():
     data = SettingsOut(
         slideshow_interval=15,
-        transition_type="fade",
+        transition_type="crossfade",
     )
     assert data.slideshow_interval == 15
 

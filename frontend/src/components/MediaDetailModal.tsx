@@ -7,6 +7,7 @@ interface MediaDetailModalProps {
   media: Media | null;
   onClose: () => void;
   onDelete: (id: number) => void;
+  error?: string | null;
 }
 
 function formatFileSize(bytes: number): string {
@@ -36,6 +37,7 @@ export default function MediaDetailModal({
   media,
   onClose,
   onDelete,
+  error,
 }: MediaDetailModalProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -129,6 +131,13 @@ export default function MediaDetailModal({
               </button>
             </div>
           </div>
+
+          {/* Error banner */}
+          {error && (
+            <div className="px-5 py-2 bg-red-50 border-b border-red-200">
+              <p className="text-sm font-medium text-red-700">Error: {error}</p>
+            </div>
+          )}
 
           {/* Media area */}
           <div className="flex-1 min-h-0 bg-gray-50 flex items-center justify-center overflow-hidden">

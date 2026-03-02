@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class MediaOut(BaseModel):
@@ -46,5 +48,5 @@ class SettingsOut(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    slideshow_interval: int | None = None
-    transition_type: str | None = None
+    slideshow_interval: int | None = Field(default=None, ge=3, le=3600)
+    transition_type: Literal["crossfade", "slide", "none"] | None = None

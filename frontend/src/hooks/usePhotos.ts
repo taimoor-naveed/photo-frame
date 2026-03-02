@@ -37,18 +37,34 @@ export function usePhotos() {
     [fetchPhotos],
   );
 
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const deletePhoto = useCallback(
     async (id: number) => {
-      await api.media.delete(id);
-      await fetchPhotos();
+      setDeleteError(null);
+      try {
+        await api.media.delete(id);
+        await fetchPhotos();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to delete";
+        setDeleteError(msg);
+        throw e;
+      }
     },
     [fetchPhotos],
   );
 
   const bulkDeletePhotos = useCallback(
     async (ids: number[]) => {
-      await api.media.bulkDelete(ids);
-      await fetchPhotos();
+      setDeleteError(null);
+      try {
+        await api.media.bulkDelete(ids);
+        await fetchPhotos();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to delete";
+        setDeleteError(msg);
+        throw e;
+      }
     },
     [fetchPhotos],
   );
@@ -89,5 +105,5 @@ export function usePhotos() {
     fetchPhotos();
   }, [fetchPhotos]);
 
-  return { photos, total, loading, error, uploadProgress, fetchPhotos, uploadFiles, deletePhoto, bulkDeletePhotos };
+  return { photos, total, loading, error, deleteError, setDeleteError, uploadProgress, fetchPhotos, uploadFiles, deletePhoto, bulkDeletePhotos };
 }

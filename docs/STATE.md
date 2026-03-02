@@ -60,6 +60,18 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 
 ## Recent Changes
 
+### QA Breaker Bug Fixes (2026-03-02)
+
+Adversarial QA testing found 5 bugs that the full test suite missed. All fixed:
+
+1. **BUG-1: Settings validation bypass** — `SettingsUpdate` schema now enforces `slideshow_interval: Field(ge=3, le=3600)` and `transition_type: Literal["crossfade", "slide", "none"]`. Backend rejects 0, -1, 999999, "explode", "".
+2. **BUG-2: Corrupt file upload → 500** — `process_image()` and `save_video_original()` now catch Pillow/ffprobe errors, return 400. Empty file check in Phase 0. Orphaned files cleaned up on failure.
+3. **BUG-3: Silent delete failures** — `deletePhoto()` and `bulkDeletePhotos()` now have try/catch. Modal stays open on delete failure. Error banners shown in gallery and modal. Selection mode preserved on bulk delete failure.
+4. **BUG-4: Settings slider spam** — Added 400ms debounce with local state on interval slider. Dragging fires 1-3 API requests instead of 28.
+5. **BUG-5: Path traversal** — `_serve_file()` now validates `path.resolve().is_relative_to(directory.resolve())` before serving.
+
+Documentation updated: CLAUDE.md test rules now include "Never swallow errors silently" and "Backend must reject, not just frontend" sections. Lessons learned table added.
+
 ### Multi-Select Bulk Deletion (2026-03-02)
 
 Added long-press-to-select pattern for bulk deleting photos/videos from the gallery.

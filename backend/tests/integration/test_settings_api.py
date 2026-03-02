@@ -12,13 +12,13 @@ def test_update_settings_full(client):
         "/api/settings",
         json={
             "slideshow_interval": 20,
-            "transition_type": "fade",
+            "transition_type": "slide",
         },
     )
     assert response.status_code == 200
     data = response.json()
     assert data["slideshow_interval"] == 20
-    assert data["transition_type"] == "fade"
+    assert data["transition_type"] == "slide"
 
 
 def test_update_settings_partial(client):

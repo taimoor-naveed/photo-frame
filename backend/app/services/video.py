@@ -180,7 +180,11 @@ def save_video_original(
     """Phase 1: Save original file, extract metadata, generate thumbnail. Fast (no transcode).
 
     Returns dict with: filename, width, height, file_size, duration, codec, thumb_filename
+    Raises ValueError for corrupt or empty files.
     """
+    if not file_bytes:
+        raise ValueError("Empty file")
+
     if originals_dir is None:
         originals_dir = config.ORIGINALS_DIR
     if thumbnails_dir is None:
@@ -190,16 +194,25 @@ def save_video_original(
     filename = f"{uuid.uuid4()}{ext}"
     thumb_filename = f"thumb_{uuid.uuid4()}.jpg"
 
-    # Save original
-    original_path = originals_dir / filename
-    original_path.write_bytes(file_bytes)
-    file_size = original_path.stat().st_size
+    created_files: list[Path] = []
+    try:
+        # Save original
+        original_path = originals_dir / filename
+        original_path.write_bytes(file_bytes)
+        created_files.append(original_path)
+        file_size = original_path.stat().st_size
 
-    # Extract metadata
-    meta = get_video_metadata(original_path)
+        # Extract metadata
+        meta = get_video_metadata(original_path)
 
-    # Generate thumbnail
-    generate_video_thumbnail(original_path, thumb_filename, thumbnails_dir)
+        # Generate thumbnail
+        generate_video_thumbnail(original_path, thumb_filename, thumbnails_dir)
+        created_files.append(thumbnails_dir / thumb_filename)
+    except (subprocess.CalledProcessError, ValueError, OSError, KeyError) as exc:
+        # Clean up any partially written files
+        for f in created_files:
+            f.unlink(missing_ok=True)
+        raise ValueError(f"Invalid video file: {exc}") from exc
 
     return {
         "filename": filename,

@@ -1,7 +1,35 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSettings } from "../hooks/useSettings";
 
 export default function SettingsPage() {
   const { settings, loading, error, saved, updateSettings } = useSettings();
+  const [localInterval, setLocalInterval] = useState<number | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync local state when settings load or change externally
+  useEffect(() => {
+    if (settings && localInterval === null) {
+      setLocalInterval(settings.slideshow_interval);
+    }
+  }, [settings, localInterval]);
+
+  const handleIntervalChange = useCallback(
+    (value: number) => {
+      setLocalInterval(value);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        updateSettings({ slideshow_interval: value });
+      }, 400);
+    },
+    [updateSettings],
+  );
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   if (loading || !settings) {
     return (
@@ -39,7 +67,7 @@ export default function SettingsPage() {
           <label className="block text-sm font-medium text-gray-700 mb-3">
             Slideshow Interval
             <span className="ml-2 text-gray-400 font-normal">
-              {settings.slideshow_interval}s
+              {localInterval ?? settings.slideshow_interval}s
             </span>
           </label>
           <input
@@ -47,10 +75,8 @@ export default function SettingsPage() {
             min={3}
             max={60}
             step={1}
-            value={settings.slideshow_interval}
-            onChange={(e) =>
-              updateSettings({ slideshow_interval: Number(e.target.value) })
-            }
+            value={localInterval ?? settings.slideshow_interval}
+            onChange={(e) => handleIntervalChange(Number(e.target.value))}
             className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer accent-gray-900"
           />
           <div className="flex justify-between text-xs text-gray-400 mt-1">
