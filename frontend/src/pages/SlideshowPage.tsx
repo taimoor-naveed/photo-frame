@@ -86,6 +86,7 @@ export default function SlideshowPage() {
   const goToSlide = useCallback(
     (next: number) => {
       if (!playlist.length) return;
+      if (next === currentIndex) return; // Single item or same slide — no transition
       waitingForVideo.current = false;
       setPrevIndex(currentIndex);
       setSlide((prev) => ({ ...prev, currentIndex: next }));
