@@ -7,7 +7,7 @@ import SelectionActionBar from "../components/SelectionActionBar";
 import { usePhotos } from "../hooks/usePhotos";
 
 export default function GalleryPage() {
-  const { photos, total, loading, error, deletePhoto, bulkDeletePhotos } = usePhotos();
+  const { photos, total, loading, error, deleteError, setDeleteError, deletePhoto, bulkDeletePhotos } = usePhotos();
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -80,9 +80,13 @@ export default function GalleryPage() {
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
-    setSelectionMode(false);
-    setSelectedIds(new Set());
-    await bulkDeletePhotos(ids);
+    try {
+      await bulkDeletePhotos(ids);
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+    } catch {
+      // Error state is set by usePhotos — keep selection mode active
+    }
   }, [selectedIds, bulkDeletePhotos]);
 
   if (loading) {
@@ -145,6 +149,17 @@ export default function GalleryPage() {
           Upload
         </Link>
       </div>
+      {deleteError && (
+        <div className="mb-4 flex items-center justify-between rounded-xl bg-red-50 border border-red-200 px-4 py-3">
+          <p className="text-sm font-medium text-red-700">{deleteError}</p>
+          <button
+            onClick={() => setDeleteError(null)}
+            className="ml-4 text-red-400 hover:text-red-600 text-sm shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {photos.map((media) => (
           <PhotoCard
@@ -172,11 +187,16 @@ export default function GalleryPage() {
 
       <MediaDetailModal
         media={selectedMedia}
-        onClose={() => setSelectedMedia(null)}
-        onDelete={(id) => {
-          setSelectedMedia(null);
-          deletePhoto(id);
+        onClose={() => { setSelectedMedia(null); setDeleteError(null); }}
+        onDelete={async (id) => {
+          try {
+            await deletePhoto(id);
+            setSelectedMedia(null);
+          } catch {
+            // Error state is set by usePhotos — keep modal open
+          }
         }}
+        error={deleteError}
       />
     </div>
   );

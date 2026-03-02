@@ -90,6 +90,8 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
             raise HTTPException(400, f"Unsupported file type: {ext}")
 
         content = await file.read()
+        if len(content) == 0:
+            raise HTTPException(400, f"Empty file: {file.filename}")
         if len(content) > config.MAX_UPLOAD_SIZE:
             raise HTTPException(400, f"File too large: {len(content)} bytes (max {config.MAX_UPLOAD_SIZE})")
 
@@ -108,7 +110,10 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
             continue
 
         if ext in config.ALLOWED_IMAGE_EXTENSIONS:
-            info = process_image(content, original_name)
+            try:
+                info = process_image(content, original_name)
+            except (ValueError, Exception) as exc:
+                raise HTTPException(400, f"Invalid image file '{original_name}': {exc}") from exc
             media = Media(
                 filename=info["filename"],
                 original_name=original_name,
@@ -130,7 +135,10 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
             )
         else:
             # Video: save + thumbnail (fast), then transcode in background if needed
-            info = save_video_original(content, original_name)
+            try:
+                info = save_video_original(content, original_name)
+            except (ValueError, Exception) as exc:
+                raise HTTPException(400, f"Invalid video file '{original_name}': {exc}") from exc
             require_transcode = needs_transcode(info["codec"])
             media = Media(
                 filename=info["filename"],

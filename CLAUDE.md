@@ -53,10 +53,32 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 
 ## Test Rules
 
+### Failure paths first, happy paths second
+- **Test failure cases before success cases.** Invalid input, corrupt data, network errors, and API failures catch more real bugs than happy paths. Every endpoint and user action must have at least one failure-path test.
+- **Backend validation tests are mandatory.** For every API endpoint, test: invalid input types, boundary values (0, -1, empty string, max+1), missing required fields, and malformed payloads. Use direct API calls — never rely solely on frontend constraints (HTML `min`/`max`, dropdown options) to enforce rules.
+- **Frontend error handling tests are mandatory.** For every API call in the frontend, test: what happens when the API returns 400, 500, or times out? Mock/intercept the API and verify the user sees feedback. Silent failures are bugs.
+- **Corrupt/malformed input tests for file uploads.** Test: zero-byte files, random bytes with valid extensions, files with wrong extensions, oversized files. Verify proper 400 responses (not 500) and no orphaned files on disk.
+
+### Never swallow errors silently
+- **Every `await` on an API call MUST have error handling.** No bare `await api.foo()` without try/catch. If the catch block is empty or just logs, that's a bug — the user must see feedback.
+- **Optimistic UI is banned for destructive actions.** Don't close modals, exit selection mode, or remove items from UI before the API confirms success. If the API fails, the user sees the item vanish then reappear — or worse, sees nothing at all.
+- **Frontend must show errors for every API failure.** Use inline error banners, error props on modals, or toast notifications. "No feedback" on failure = silent data loss = bug.
+- **Test API failures in E2E.** For every user action that calls the backend (delete, upload, settings save), write at least one Playwright test that intercepts the API with a 500 response and asserts an error message is visible to the user.
+
+### Backend must reject, not just frontend
+- **Backend validation is the source of truth.** Frontend constraints (slider min/max, dropdown options, file type filters) are UX hints. Backend must independently validate all inputs with Pydantic validators, and return 400/422 for invalid data.
+- **Pydantic schemas must constrain values.** Use `Field(ge=..., le=...)` for numeric ranges, `Literal[...]` for enum-like strings. Never accept `str` or `int` without bounds when the domain has limits.
+- **Wrap external tool calls in try/except.** Pillow `Image.open()`, ffprobe, ffmpeg — any call to an external library/process that handles user data must be wrapped. Unhandled exceptions from corrupt input = 500 = bug.
+- **Clean up on failure.** If a file is written to disk before validation fails, delete it. Orphaned files with no DB record waste disk and confuse debugging.
+
+### Test quality standards
 - **Assert identity, not existence.** Never write `expect(items.length).toBeGreaterThan(0)`. Always verify *which* item is shown, not just *that something* rendered. Use `data-media-id`, `data-testid`, or specific field values.
 - **Cross-boundary integration tests are mandatory.** When adding a backend event or API change, write at least one test that sends a real message from the backend and asserts the frontend receives it with correct field names. TypeScript `as` casts hide mismatches — don't rely on them at system boundaries.
 - **Convert spec bullets to test stubs first.** Before building a feature, read the spec, write failing test stubs for each behavior, then implement. This prevents "tests that pass with bugs."
 - **E2E for complex stateful UI.** Unit tests with mocked timers and `act()` don't catch re-render cascades or unstable refs. For slideshow-like features, write E2E tests first.
+- **API-bypass tests are required.** If the frontend constrains input (slider range, dropdown options), write a test that sends the unconstrained value directly to the API. Frontend constraints are UX — backend validation is security.
+- **Debounce tests for rapid-fire UI.** If a control (slider, text input) can fire many events in quick succession, test that the number of API requests is bounded. Unbounced controls waste bandwidth and spam WS broadcasts.
+- **Security tests for file serving.** Test path traversal (`../../../etc/passwd`), URL-encoded variants, and filenames with special characters against every file-serving endpoint.
 - **Use `/test-writer` skill** when writing tests to enforce these patterns automatically.
 
 ## React Patterns
@@ -74,6 +96,20 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **WebSocket event format**: Backend sends `{"type": ..., "payload": ...}` to match frontend `WsEvent` interface. Any mismatch is silent (TypeScript `as` cast swallows it).
 - **File input clearing**: Some browsers invalidate `File` objects when `input.value = ""` — copy files to array first.
 - **StrictMode double-fetch**: React 19 StrictMode double-invokes effects, causing duplicate fetches. Use refs (e.g. `initialBuildDone`) to guard one-time operations.
+
+## Lessons Learned (QA Breaker — 2026-03-02)
+
+Five bugs found by adversarial QA testing that the full test suite missed. Root cause: tests only covered happy paths.
+
+| Bug | Root Cause | Fix | Lesson |
+|-----|-----------|-----|--------|
+| Settings accepts 0/-1/999999 interval | No Pydantic validators on `SettingsUpdate` | `Field(ge=3, le=3600)` + `Literal["crossfade","slide","none"]` | Frontend constraints are UX. Backend validation is security. |
+| Corrupt file upload → 500 | No try/except around `Image.open()` / ffprobe | Wrap in try/except, return 400, clean up orphaned files | Every external tool call on user data needs error handling. |
+| Delete errors silently swallowed | No try/catch on `deletePhoto()` / `bulkDeletePhotos()` | Add try/catch, show error banners, don't close modal on failure | Every `await api.foo()` needs error handling. Silent failure = bug. |
+| Slider sends 28 PUT requests | No debounce on `onChange` | Local state + 400ms debounce timer | Rapid-fire inputs need debounce before API calls. |
+| Path traversal (latent) | No `is_relative_to()` check in `_serve_file()` | `path.resolve().is_relative_to(directory.resolve())` | Defense in depth — validate even if the framework protects you. |
+
+**Key takeaway:** A test suite with only happy-path tests gives false confidence. The five bugs above were each one curl/fetch command away from discovery, but 229 existing tests missed all of them.
 
 ## Run & Test
 
