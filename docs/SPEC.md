@@ -8,6 +8,7 @@
 | `GET`    | `/api/media`                      | List all media (paginated)            |
 | `POST`   | `/api/media`                      | Upload photos and/or videos           |
 | `GET`    | `/api/media/{id}`                 | Get media metadata                    |
+| `DELETE` | `/api/media/bulk`                 | Bulk delete media by IDs              |
 | `DELETE` | `/api/media/{id}`                 | Delete media + all associated files   |
 | `GET`    | `/uploads/originals/{filename}`   | Serve full-size image/video           |
 | `GET`    | `/uploads/thumbnails/{filename}`  | Serve thumbnail                       |

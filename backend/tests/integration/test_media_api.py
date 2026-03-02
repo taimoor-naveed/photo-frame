@@ -181,3 +181,115 @@ def test_serve_thumbnail_file(client, sample_jpeg):
 
     response = client.get(f"/uploads/thumbnails/{thumb}")
     assert response.status_code == 200
+
+
+# ─── Bulk Delete Tests ──────────────────────────────────────
+
+
+def _upload_unique_photos(client, count: int) -> list[int]:
+    """Upload `count` unique photos and return their IDs."""
+    colors = ["red", "green", "blue", "yellow", "cyan", "magenta", "orange", "purple"]
+    ids = []
+    for i in range(count):
+        data = _make_jpeg(colors[i % len(colors)])
+        r = client.post("/api/media", files=[("files", (f"p{i}.jpg", io.BytesIO(data), "image/jpeg"))])
+        assert r.status_code == 200
+        ids.append(r.json()[0]["id"])
+    return ids
+
+
+def test_bulk_delete_multiple(client):
+    """Upload 3, bulk delete 2 by ID, verify 1 remains."""
+    ids = _upload_unique_photos(client, 3)
+    to_delete = ids[:2]
+    remaining_id = ids[2]
+
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": to_delete})
+    assert r.status_code == 200
+    body = r.json()
+    assert sorted(body["deleted"]) == sorted(to_delete)
+    assert body["not_found"] == []
+
+    # Remaining item still accessible
+    assert client.get(f"/api/media/{remaining_id}").status_code == 200
+    # Deleted items return 404
+    for mid in to_delete:
+        assert client.get(f"/api/media/{mid}").status_code == 404
+    assert client.get("/api/media").json()["total"] == 1
+
+
+def test_bulk_delete_all(client):
+    """Upload 3, bulk delete all 3, verify gallery empty."""
+    ids = _upload_unique_photos(client, 3)
+
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": ids})
+    assert r.status_code == 200
+    assert sorted(r.json()["deleted"]) == sorted(ids)
+    assert client.get("/api/media").json()["total"] == 0
+
+
+def test_bulk_delete_single(client):
+    """Bulk delete with 1 ID — degenerate case."""
+    ids = _upload_unique_photos(client, 1)
+
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": ids})
+    assert r.status_code == 200
+    assert r.json()["deleted"] == ids
+    assert client.get("/api/media").json()["total"] == 0
+
+
+def test_bulk_delete_files_cleaned_up(client, tmp_path, monkeypatch):
+    """Bulk delete removes original + thumbnail from disk."""
+    import app.config as cfg
+
+    ids = _upload_unique_photos(client, 1)
+    media = client.get(f"/api/media/{ids[0]}").json()
+    original_path = cfg.ORIGINALS_DIR / media["filename"]
+    thumb_path = cfg.THUMBNAILS_DIR / media["thumb_filename"]
+    assert original_path.exists()
+    assert thumb_path.exists()
+
+    client.request("DELETE", "/api/media/bulk", json={"ids": ids})
+
+    assert not original_path.exists()
+    assert not thumb_path.exists()
+
+
+def test_bulk_delete_empty_list(client):
+    """Send empty list — succeeds with empty results."""
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": []})
+    assert r.status_code == 200
+    assert r.json() == {"deleted": [], "not_found": []}
+
+
+def test_bulk_delete_some_not_found(client):
+    """Upload 1, bulk delete [real_id, 99999] — partial success."""
+    ids = _upload_unique_photos(client, 1)
+    real_id = ids[0]
+
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": [real_id, 99999]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deleted"] == [real_id]
+    assert body["not_found"] == [99999]
+
+
+def test_bulk_delete_all_not_found(client):
+    """Bulk delete nonexistent IDs — succeeds with all not_found."""
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": [99998, 99999]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deleted"] == []
+    assert sorted(body["not_found"]) == [99998, 99999]
+
+
+def test_bulk_delete_duplicate_ids(client):
+    """Same ID twice — deleted once, second occurrence is not_found."""
+    ids = _upload_unique_photos(client, 1)
+    mid = ids[0]
+
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": [mid, mid]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["deleted"] == [mid]
+    assert body["not_found"] == [mid]

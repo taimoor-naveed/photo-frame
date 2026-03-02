@@ -1,20 +1,89 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Media } from "../api/client";
 import MediaDetailModal from "../components/MediaDetailModal";
 import PhotoCard from "../components/PhotoCard";
+import SelectionActionBar from "../components/SelectionActionBar";
 import { usePhotos } from "../hooks/usePhotos";
 
 export default function GalleryPage() {
-  const { photos, total, loading, error, deletePhoto } = usePhotos();
+  const { photos, total, loading, error, deletePhoto, bulkDeletePhotos } = usePhotos();
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // Clear selection if the selected media is removed (e.g. via WebSocket)
+  // Clear modal selection if the selected media is removed (e.g. via WebSocket)
   useEffect(() => {
     if (selectedMedia && !photos.some((p) => p.id === selectedMedia.id)) {
       setSelectedMedia(null);
     }
   }, [photos, selectedMedia]);
+
+  // Prune stale IDs from selection when photos change (WS deletions)
+  useEffect(() => {
+    if (!selectionMode) return;
+    const photoIds = new Set(photos.map((p) => p.id));
+    setSelectedIds((prev) => {
+      const pruned = new Set([...prev].filter((id) => photoIds.has(id)));
+      if (pruned.size === prev.size) return prev;
+      return pruned;
+    });
+    // Auto-exit selection mode if no photos remain
+    if (photos.length === 0) {
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+    }
+  }, [photos, selectionMode]);
+
+  // Escape key exits selection mode
+  useEffect(() => {
+    if (!selectionMode) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectionMode(false);
+        setSelectedIds(new Set());
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [selectionMode]);
+
+  const handleLongPress = useCallback((media: Media) => {
+    setSelectionMode(true);
+    setSelectedIds(new Set([media.id]));
+  }, []);
+
+  const handleToggleSelect = useCallback((media: Media) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(media.id)) {
+        next.delete(media.id);
+      } else {
+        next.add(media.id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds(new Set(photos.map((p) => p.id)));
+  }, [photos]);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleCancelSelection = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleBulkDelete = useCallback(async () => {
+    const ids = [...selectedIds];
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    await bulkDeletePhotos(ids);
+  }, [selectedIds, bulkDeletePhotos]);
 
   if (loading) {
     return (
@@ -82,9 +151,24 @@ export default function GalleryPage() {
             key={media.id}
             media={media}
             onClick={(m) => setSelectedMedia(m)}
+            selectionMode={selectionMode}
+            selected={selectedIds.has(media.id)}
+            onLongPress={handleLongPress}
+            onToggleSelect={handleToggleSelect}
           />
         ))}
       </div>
+
+      {selectionMode && (
+        <SelectionActionBar
+          selectedCount={selectedIds.size}
+          totalCount={photos.length}
+          onCancel={handleCancelSelection}
+          onSelectAll={handleSelectAll}
+          onDeselectAll={handleDeselectAll}
+          onDelete={handleBulkDelete}
+        />
+      )}
 
       <MediaDetailModal
         media={selectedMedia}

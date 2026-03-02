@@ -1,25 +1,78 @@
+import { useCallback, useRef } from "react";
 import type { Media } from "../api/client";
 import { thumbnailUrl } from "../api/client";
 
 interface PhotoCardProps {
   media: Media;
   onClick?: (media: Media) => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onLongPress?: (media: Media) => void;
+  onToggleSelect?: (media: Media) => void;
 }
 
-export default function PhotoCard({ media, onClick }: PhotoCardProps) {
+const LONG_PRESS_MS = 500;
+
+export default function PhotoCard({
+  media,
+  onClick,
+  selectionMode = false,
+  selected = false,
+  onLongPress,
+  onToggleSelect,
+}: PhotoCardProps) {
   const isProcessing = media.processing_status === "processing";
   const isError = media.processing_status === "error";
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didLongPress = useRef(false);
+
+  const clearTimer = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handlePointerDown = useCallback(() => {
+    if (isProcessing || isError) return;
+    didLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      didLongPress.current = true;
+      longPressTimer.current = null;
+      onLongPress?.(media);
+    }, LONG_PRESS_MS);
+  }, [isProcessing, isError, media, onLongPress]);
+
+  const handlePointerUp = useCallback(() => {
+    clearTimer();
+  }, [clearTimer]);
+
+  const handleClick = useCallback(() => {
+    if (didLongPress.current) {
+      didLongPress.current = false;
+      return;
+    }
+    if (isProcessing || isError) return;
+
+    if (selectionMode) {
+      onToggleSelect?.(media);
+    } else {
+      onClick?.(media);
+    }
+  }, [isProcessing, isError, selectionMode, media, onClick, onToggleSelect]);
 
   return (
     <div
       data-testid="photo-card"
       data-media-id={media.id}
-      className={`group relative overflow-hidden rounded-2xl bg-gray-100 shadow-sm hover:shadow-md transition-shadow ${
+      className={`group relative overflow-hidden rounded-2xl bg-gray-100 shadow-sm transition-shadow ${
         !isProcessing && !isError ? "cursor-pointer" : ""
-      }`}
-      onClick={() => {
-        if (!isProcessing && !isError && onClick) onClick(media);
-      }}
+      } ${selected ? "ring-2 ring-blue-500 ring-offset-2" : "hover:shadow-md"}`}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+      onClick={handleClick}
+      onContextMenu={(e) => e.preventDefault()}
     >
       <div className="aspect-[4/3]">
         <img
@@ -29,6 +82,7 @@ export default function PhotoCard({ media, onClick }: PhotoCardProps) {
             isProcessing ? "opacity-40" : isError ? "opacity-60" : ""
           }`}
           loading="lazy"
+          draggable={false}
         />
       </div>
 
@@ -79,6 +133,24 @@ export default function PhotoCard({ media, onClick }: PhotoCardProps) {
       {media.media_type === "video" && (
         <div className="absolute top-2.5 left-2.5 rounded-lg bg-black/60 backdrop-blur-sm px-2 py-1 text-xs font-medium text-white">
           Video
+        </div>
+      )}
+
+      {/* Selection indicator */}
+      {selectionMode && (
+        <div
+          data-testid="selection-indicator"
+          className="absolute top-2.5 right-2.5"
+        >
+          {selected ? (
+            <div data-testid="selection-checked" className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 shadow-sm">
+              <svg className="h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          ) : (
+            <div data-testid="selection-unchecked" className="h-6 w-6 rounded-full border-2 border-white/80 bg-black/20 shadow-sm" />
+          )}
         </div>
       )}
     </div>

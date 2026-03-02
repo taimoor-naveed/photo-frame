@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app import config
 from app.database import SessionLocal, get_db
 from app.models import Media
-from app.schemas import MediaListOut, MediaOut
+from app.schemas import BulkDeleteRequest, BulkDeleteResponse, MediaListOut, MediaOut
 from app.services.image import process_image
 from app.services.video import needs_transcode, save_video_original, transcode_to_h264
 from app.websocket import manager
@@ -193,6 +193,47 @@ def get_media(media_id: int, db: Session = Depends(get_db)):
     if not media:
         raise HTTPException(404, "Media not found")
     return media
+
+
+@router.delete("/bulk", response_model=BulkDeleteResponse)
+async def bulk_delete_media(body: BulkDeleteRequest, db: Session = Depends(get_db)):
+    deleted = []
+    not_found = []
+    seen = set()
+
+    for media_id in body.ids:
+        if media_id in seen:
+            not_found.append(media_id)
+            continue
+        seen.add(media_id)
+
+        media = db.query(Media).filter(Media.id == media_id).first()
+        if not media:
+            not_found.append(media_id)
+            continue
+
+        # Remove files from disk
+        for path in [
+            config.ORIGINALS_DIR / media.filename,
+            config.THUMBNAILS_DIR / media.thumb_filename,
+        ]:
+            path.unlink(missing_ok=True)
+
+        if media.transcoded_filename:
+            (config.TRANSCODED_DIR / media.transcoded_filename).unlink(missing_ok=True)
+
+        db.delete(media)
+        deleted.append(media_id)
+
+    db.commit()
+
+    # Broadcast individual media_deleted events for each deleted item
+    for media_id in deleted:
+        asyncio.create_task(
+            manager.broadcast({"type": "media_deleted", "payload": {"id": media_id}})
+        )
+
+    return BulkDeleteResponse(deleted=deleted, not_found=not_found)
 
 
 @router.delete("/{media_id}")

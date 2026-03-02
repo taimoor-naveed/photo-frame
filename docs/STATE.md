@@ -8,10 +8,10 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 44 | All passing |
-| Frontend (vitest) | 72 | All passing |
-| E2E (playwright) | 67 (3 skipped) | All passing |
-| **Total** | **~183** | **Green** |
+| Backend (pytest) | 52 | All passing |
+| Frontend (vitest) | 98 | All passing |
+| E2E (playwright) | 79 (3 skipped) | All passing |
+| **Total** | **~229** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-only / desktop-only).
 
@@ -20,7 +20,7 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 ## What's Built
 
 ### Backend
-- **Media API**: upload (multi-file), list (paginated), get, delete with file cleanup
+- **Media API**: upload (multi-file), list (paginated), get, delete, bulk delete with file cleanup
 - **Settings API**: get with auto-create defaults, partial update
 - **Video processing**: two-phase upload — fast save + background ffmpeg transcode in thread
 - **Smart transcoding**: only non-browser codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
@@ -30,7 +30,7 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 - **File serving**: originals, thumbnails, transcoded videos via FileResponse
 
 ### Frontend
-- **Gallery**: responsive grid, click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state
+- **Gallery**: responsive grid, click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state, multi-select bulk deletion (long-press to select)
 - **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), delete with confirmation, keyboard/backdrop dismiss
 - **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
 - **Settings**: interval slider (3-60s), transition type toggle, instant save
@@ -59,6 +59,16 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 ---
 
 ## Recent Changes
+
+### Multi-Select Bulk Deletion (2026-03-02)
+
+Added long-press-to-select pattern for bulk deleting photos/videos from the gallery.
+
+- **Backend**: `DELETE /api/media/bulk` endpoint — accepts `{ids: []}`, returns `{deleted: [], not_found: []}`. Lenient design: partial success if some IDs already gone. Broadcasts individual `media_deleted` WS events per item.
+- **Frontend — PhotoCard**: Long-press detection (500ms timer via `onPointerDown`/`onPointerUp`), selection mode visuals (blue ring + checkmark circle), conditional click behavior (toggle select vs open modal).
+- **Frontend — SelectionActionBar**: New floating bottom bar with frosted glass style matching navbar. Cancel, count display, "Select all" / "Deselect all" link, red Delete button with confirmation dialog.
+- **Frontend — GalleryPage**: Selection state management (`selectionMode` + `selectedIds` Set), Escape key exits, stale ID pruning on WS deletions, auto-exit when gallery empties.
+- **Tests**: 8 backend integration, 10 PhotoCard unit, 9 SelectionActionBar unit, 7 GalleryPage unit, 12 E2E (6 scenarios × desktop + mobile)
 
 ### Media Detail Modal (2026-02-28)
 

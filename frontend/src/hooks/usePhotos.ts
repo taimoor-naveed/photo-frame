@@ -45,6 +45,14 @@ export function usePhotos() {
     [fetchPhotos],
   );
 
+  const bulkDeletePhotos = useCallback(
+    async (ids: number[]) => {
+      await api.media.bulkDelete(ids);
+      await fetchPhotos();
+    },
+    [fetchPhotos],
+  );
+
   // Live updates via WebSocket
   const handleWsEvent = useCallback(
     (event: WsEvent) => {
@@ -81,5 +89,5 @@ export function usePhotos() {
     fetchPhotos();
   }, [fetchPhotos]);
 
-  return { photos, total, loading, error, uploadProgress, fetchPhotos, uploadFiles, deletePhoto };
+  return { photos, total, loading, error, uploadProgress, fetchPhotos, uploadFiles, deletePhoto, bulkDeletePhotos };
 }
