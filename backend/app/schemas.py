@@ -29,6 +29,15 @@ class MediaListOut(BaseModel):
     per_page: int
 
 
+class BulkDeleteRequest(BaseModel):
+    ids: list[int]
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: list[int]
+    not_found: list[int]
+
+
 class SettingsOut(BaseModel):
     slideshow_interval: int
     transition_type: str

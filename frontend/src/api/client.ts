@@ -30,6 +30,11 @@ export interface Settings {
   transition_type: string;
 }
 
+export interface BulkDeleteResponse {
+  deleted: number[];
+  not_found: number[];
+}
+
 export interface SettingsUpdate {
   slideshow_interval?: number;
   transition_type?: string;
@@ -90,6 +95,13 @@ export const api = {
     },
     delete(id: number): Promise<void> {
       return request(`/media/${id}`, { method: "DELETE" });
+    },
+    bulkDelete(ids: number[]): Promise<BulkDeleteResponse> {
+      return request(`/media/bulk`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
     },
   },
   settings: {
