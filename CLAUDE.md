@@ -129,6 +129,13 @@ docker compose exec frontend sh    # Shell into frontend
 
 Ports: backend=8000, frontend=5173
 
+## RPi Deployment
+
+- Target: Raspberry Pi 4 (4GB RAM), hostname `rpi4`, user `pi`
+- Use the `term-cli` skill for interactive terminal sessions (SSH, ansible-playbook, etc.)
+- term-cli runs commands in background tmux sessions — use it for SSH into the Pi, running playbooks, checking logs
+- For SSH passwords: ask the user, then use `send-text` to type it
+
 ## Resume Protocol
 
 **On startup:**
