@@ -1,6 +1,6 @@
 # Photo Frame
 
-Raspberry Pi 5 photo frame with web management UI. Touchscreen display, supports photos + videos (motion pictures). Developed on Mac with Docker, deployed to RPi5 later. Low traffic (2-3 concurrent users, 50 max).
+Raspberry Pi 4 (4GB RAM) photo frame with web management UI. Touchscreen display, supports photos + videos (motion pictures). Developed on Mac with Docker, deployed to RPi 4 later. Low traffic (2-3 concurrent users, 50 max).
 
 ## Stack
 

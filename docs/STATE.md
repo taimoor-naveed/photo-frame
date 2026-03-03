@@ -114,11 +114,16 @@ Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slid
 
 ---
 
+## Next Up
+
+**HEIC photo support** — Backend already allows `.heic` extension but Pillow can't open HEIC files without the `pillow-heif` plugin. Need to add the dependency and ensure HEIC photos go through the same upload/thumbnail/display pipeline as JPEG/PNG. iPhones shoot HEIC by default, so this is critical for real-world use.
+
+---
+
 ## Known Limitations / Future Work
 
 - **No user auth** — single-user photo frame, no login needed
 - **No image editing** — crop, rotate, filters not implemented
 - **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale
-- **No HEIC photo support** — backend allows .heic extension but Pillow needs pillow-heif plugin
-- **RPi 3B performance** — blur(30px) effect may be heavy on old ARM GPU; consider reducing or disabling
+- **RPi 4 deployment** — target device is RPi 4 with 4GB RAM; may need display optimization (pre-compositing media to target resolution) to avoid heavy CSS blur on the Pi's browser
 - **No offline mode** — requires network connection to backend
