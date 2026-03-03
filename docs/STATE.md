@@ -116,7 +116,20 @@ Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slid
 
 ## Next Up
 
-**HEIC photo support** — Backend already allows `.heic` extension but Pillow can't open HEIC files without the `pillow-heif` plugin. Need to add the dependency and ensure HEIC photos go through the same upload/thumbnail/display pipeline as JPEG/PNG. iPhones shoot HEIC by default, so this is critical for real-world use.
+### 1. Eliminate dev/prod environment differences
+The separate prod Dockerfiles and compose file (`Dockerfile.prod`, `docker-compose.prod.yml`) diverged from dev and caused bugs that only appeared on the RPi:
+- **`--workers 2` in `backend/Dockerfile.prod`** killed background transcode threads when worker processes restarted. Fix: use single worker (same as dev).
+- **`_broadcast()` in `backend/app/routers/media.py`** not being error-safe — a failed WebSocket broadcast from a background thread crashed the entire transcode, preventing the DB update. Fix: wrap in try/except.
+- **`frontend/nginx.conf`** missing `client_max_body_size 250m` — nginx rejects uploads >1MB but backend allows 200MB.
+- **`npm ci` in `frontend/Dockerfile.prod`** requires `package-lock.json` which wasn't in the repo (dev uses `npm install`).
+
+**Goal:** Consolidate to a single environment. If prod needs differ (e.g., no hot reload), keep differences minimal and well-documented. The same Docker setup that runs on the Mac should run on the RPi.
+
+### 2. Create deploy playbook for fresh RPi
+Write an Ansible playbook from scratch to provision a fresh Raspberry Pi 4. Should install Docker, copy project files, build and start containers, health check, and set up Chromium kiosk mode for slideshow auto-launch. Rewrite the `deploy/` directory after environment consolidation is done.
+
+### 3. HEIC photo support
+Backend already allows `.heic` extension but Pillow can't open HEIC files without the `pillow-heif` plugin. Need to add the dependency and ensure HEIC photos go through the same upload/thumbnail/display pipeline as JPEG/PNG. iPhones shoot HEIC by default, so this is critical for real-world use.
 
 ---
 
