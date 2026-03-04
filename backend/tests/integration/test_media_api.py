@@ -84,6 +84,79 @@ def test_upload_duplicate_detection(client, sample_jpeg):
     assert client.get("/api/media").json()["total"] == 1
 
 
+# ─── HEIC Upload Tests ────────────────────────────────────────
+
+
+def test_upload_corrupt_heic_returns_400(client):
+    """Corrupt HEIC file returns 400, not 500."""
+    corrupt = b"\x00\x01\x02garbage_heic" * 100
+    response = client.post(
+        "/api/media",
+        files=[("files", ("corrupt.heic", io.BytesIO(corrupt), "image/heic"))],
+    )
+    assert response.status_code == 400
+
+
+def test_upload_corrupt_heic_no_orphaned_files(client, tmp_path, monkeypatch):
+    """Corrupt HEIC upload leaves no orphaned files on disk."""
+    import app.config as cfg
+
+    originals_before = set(cfg.ORIGINALS_DIR.iterdir())
+    thumbnails_before = set(cfg.THUMBNAILS_DIR.iterdir())
+
+    corrupt = b"\x00\x01\x02garbage_heic" * 100
+    client.post(
+        "/api/media",
+        files=[("files", ("corrupt.heic", io.BytesIO(corrupt), "image/heic"))],
+    )
+
+    assert set(cfg.ORIGINALS_DIR.iterdir()) == originals_before
+    assert set(cfg.THUMBNAILS_DIR.iterdir()) == thumbnails_before
+
+
+def test_upload_empty_heic_returns_400(client):
+    """Empty HEIC file returns 400."""
+    response = client.post(
+        "/api/media",
+        files=[("files", ("empty.heic", io.BytesIO(b""), "image/heic"))],
+    )
+    assert response.status_code == 400
+
+
+def test_upload_heic_photo(client, sample_heic):
+    """Upload a real HEIC file — converted to JPEG, correct metadata."""
+    response = client.post(
+        "/api/media",
+        files=[("files", ("photo.heic", io.BytesIO(sample_heic), "image/heic"))],
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["media_type"] == "photo"
+    assert data[0]["width"] == 640
+    assert data[0]["height"] == 480
+    assert data[0]["original_name"] == "photo.heic"
+    assert data[0]["filename"].endswith(".jpg")
+    assert data[0]["thumb_filename"].endswith(".jpg")
+    assert data[0]["processing_status"] == "ready"
+
+
+def test_upload_heic_duplicate_detection(client, sample_heic):
+    """Uploading the same HEIC file twice returns the existing media."""
+    r1 = client.post(
+        "/api/media",
+        files=[("files", ("photo.heic", io.BytesIO(sample_heic), "image/heic"))],
+    )
+    r2 = client.post(
+        "/api/media",
+        files=[("files", ("photo.heic", io.BytesIO(sample_heic), "image/heic"))],
+    )
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r1.json()[0]["id"] == r2.json()[0]["id"]
+    assert client.get("/api/media").json()["total"] == 1
+
+
 def test_upload_invalid_extension(client):
     response = client.post(
         "/api/media",
