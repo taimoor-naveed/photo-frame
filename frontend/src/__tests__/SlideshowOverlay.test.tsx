@@ -1,5 +1,4 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
 import SlideshowOverlay from "../components/SlideshowOverlay";
 import type { Settings } from "../api/client";
 
@@ -11,50 +10,45 @@ const mockSettings: Settings = {
 describe("SlideshowOverlay", () => {
   it("renders controls when visible", () => {
     render(
-      <MemoryRouter>
-        <SlideshowOverlay
-          visible={true}
-          settings={mockSettings}
-          paused={false}
-          onTogglePause={() => {}}
-          onUpdateSettings={() => {}}
-        />
-      </MemoryRouter>,
+      <SlideshowOverlay
+        visible={true}
+        settings={mockSettings}
+        paused={false}
+        onTogglePause={() => {}}
+        onUpdateSettings={() => {}}
+      />,
     );
 
-    expect(screen.getByText("Pause")).toBeInTheDocument();
-    expect(screen.getByText("Manage Photos")).toBeInTheDocument();
+    expect(screen.getByLabelText("Pause slideshow")).toBeInTheDocument();
     expect(screen.getByText("crossfade")).toBeInTheDocument();
+    expect(screen.getByText("Interval")).toBeInTheDocument();
+    expect(screen.getByText("Transition")).toBeInTheDocument();
   });
 
-  it("shows Play when paused", () => {
+  it("shows Resume label when paused", () => {
     render(
-      <MemoryRouter>
-        <SlideshowOverlay
-          visible={true}
-          settings={mockSettings}
-          paused={true}
-          onTogglePause={() => {}}
-          onUpdateSettings={() => {}}
-        />
-      </MemoryRouter>,
+      <SlideshowOverlay
+        visible={true}
+        settings={mockSettings}
+        paused={true}
+        onTogglePause={() => {}}
+        onUpdateSettings={() => {}}
+      />,
     );
 
-    expect(screen.getByText("Play")).toBeInTheDocument();
+    expect(screen.getByLabelText("Resume slideshow")).toBeInTheDocument();
   });
 
   it("calls onTogglePause when pause button clicked", () => {
     const onTogglePause = vi.fn();
     render(
-      <MemoryRouter>
-        <SlideshowOverlay
-          visible={true}
-          settings={mockSettings}
-          paused={false}
-          onTogglePause={onTogglePause}
-          onUpdateSettings={() => {}}
-        />
-      </MemoryRouter>,
+      <SlideshowOverlay
+        visible={true}
+        settings={mockSettings}
+        paused={false}
+        onTogglePause={onTogglePause}
+        onUpdateSettings={() => {}}
+      />,
     );
 
     fireEvent.click(screen.getByLabelText("Pause slideshow"));
@@ -64,15 +58,13 @@ describe("SlideshowOverlay", () => {
   it("calls onUpdateSettings when transition button clicked", () => {
     const onUpdate = vi.fn();
     render(
-      <MemoryRouter>
-        <SlideshowOverlay
-          visible={true}
-          settings={mockSettings}
-          paused={false}
-          onTogglePause={() => {}}
-          onUpdateSettings={onUpdate}
-        />
-      </MemoryRouter>,
+      <SlideshowOverlay
+        visible={true}
+        settings={mockSettings}
+        paused={false}
+        onTogglePause={() => {}}
+        onUpdateSettings={onUpdate}
+      />,
     );
 
     fireEvent.click(screen.getByText("slide"));
@@ -81,15 +73,13 @@ describe("SlideshowOverlay", () => {
 
   it("does not render order buttons", () => {
     render(
-      <MemoryRouter>
-        <SlideshowOverlay
-          visible={true}
-          settings={mockSettings}
-          paused={false}
-          onTogglePause={() => {}}
-          onUpdateSettings={() => {}}
-        />
-      </MemoryRouter>,
+      <SlideshowOverlay
+        visible={true}
+        settings={mockSettings}
+        paused={false}
+        onTogglePause={() => {}}
+        onUpdateSettings={() => {}}
+      />,
     );
 
     expect(screen.queryByText("Order")).not.toBeInTheDocument();
@@ -100,15 +90,13 @@ describe("SlideshowOverlay", () => {
 
   it("has translate-y-full when not visible", () => {
     const { container } = render(
-      <MemoryRouter>
-        <SlideshowOverlay
-          visible={false}
-          settings={mockSettings}
-          paused={false}
-          onTogglePause={() => {}}
-          onUpdateSettings={() => {}}
-        />
-      </MemoryRouter>,
+      <SlideshowOverlay
+        visible={false}
+        settings={mockSettings}
+        paused={false}
+        onTogglePause={() => {}}
+        onUpdateSettings={() => {}}
+      />,
     );
 
     const overlay = container.firstElementChild as HTMLElement;

@@ -67,7 +67,7 @@ test.describe("Media Detail Modal", () => {
     });
 
     // Gallery should show empty state
-    await expect(page.getByText("No photos yet")).toBeVisible({
+    await expect(page.getByText("Your gallery awaits")).toBeVisible({
       timeout: 5000,
     });
   });

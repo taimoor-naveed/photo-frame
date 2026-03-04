@@ -70,7 +70,7 @@ test.describe("Upload Edge Cases", () => {
 
     // Should be back to idle state — "Choose Files" button visible
     await expect(page.getByText("Choose Files")).toBeVisible();
-    await expect(page.getByText("Drag and drop")).toBeVisible();
+    await expect(page.getByText("Drop your memories here")).toBeVisible();
   });
 
   test("uploading shows progress indicator", async ({
@@ -116,7 +116,7 @@ test.describe("Upload Edge Cases", () => {
     await page.goto("/upload");
 
     // Verify the drop zone exists
-    await expect(page.getByText("Drag and drop")).toBeVisible();
+    await expect(page.getByText("Drop your memories here")).toBeVisible();
 
     // Verify "Choose Files" button is clickable
     await expect(page.getByText("Choose Files")).toBeEnabled();

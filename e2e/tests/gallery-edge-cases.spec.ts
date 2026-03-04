@@ -32,7 +32,7 @@ test.describe("Gallery Real-Time Updates", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByText("No photos yet")).toBeVisible();
+    await expect(page.getByText("Your gallery awaits")).toBeVisible();
 
     // Upload via API (simulates another device/tab)
     const result = await apiUploadTestImage(getSampleImage(0));
@@ -44,7 +44,7 @@ test.describe("Gallery Real-Time Updates", () => {
     ).toBeVisible({ timeout: 10000 });
 
     // Empty state should be gone
-    await expect(page.getByText("No photos yet")).not.toBeVisible();
+    await expect(page.getByText("Your gallery awaits")).not.toBeVisible();
   });
 
   test("deleted photo disappears from gallery without refresh", async ({
@@ -68,7 +68,7 @@ test.describe("Gallery Real-Time Updates", () => {
     ).not.toBeVisible({ timeout: 10000 });
 
     // Empty state should appear
-    await expect(page.getByText("No photos yet")).toBeVisible({
+    await expect(page.getByText("Your gallery awaits")).toBeVisible({
       timeout: 5000,
     });
   });
@@ -77,7 +77,7 @@ test.describe("Gallery Real-Time Updates", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByText("No photos yet")).toBeVisible();
+    await expect(page.getByText("Your gallery awaits")).toBeVisible();
 
     // Upload 3 photos in quick succession via API
     await apiUploadTestImage(getSampleImage(0));
@@ -136,7 +136,7 @@ test.describe("Gallery Multi-Select Edge Cases", () => {
     await page.waitForTimeout(2000);
 
     // Gallery should show empty state
-    await expect(page.getByText("No photos yet")).toBeVisible({
+    await expect(page.getByText("Your gallery awaits")).toBeVisible({
       timeout: 5000,
     });
 

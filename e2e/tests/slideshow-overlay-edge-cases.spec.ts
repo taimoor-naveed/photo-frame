@@ -62,7 +62,7 @@ test.describe("Slideshow Overlay Edge Cases", () => {
 
     // Open overlay
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
 
@@ -70,7 +70,7 @@ test.describe("Slideshow Overlay Edge Cases", () => {
     await page.waitForTimeout(6000);
 
     // Overlay should have auto-hidden (translate-y-full = not in viewport)
-    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).not.toBeInViewport();
   });
 
   test("overlay interaction resets auto-hide timer", async ({ page }) => {
@@ -78,7 +78,7 @@ test.describe("Slideshow Overlay Edge Cases", () => {
 
     // Open overlay
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
 
@@ -86,19 +86,19 @@ test.describe("Slideshow Overlay Edge Cases", () => {
     await page.waitForTimeout(3000);
 
     // Click a button inside the overlay (this should reset the timer)
-    await page.getByRole("button", { name: "Pause" }).click();
+    await page.getByRole("button", { name: "Pause slideshow" }).click();
 
     // Wait another 3 seconds (total 6s since open, but only 3s since last interaction)
     await page.waitForTimeout(3000);
 
     // Overlay should still be visible (timer was reset)
-    await expect(page.getByText("Manage Photos")).toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport();
 
     // Wait the full 5s from last interaction
     await page.waitForTimeout(3000);
 
     // Now it should be hidden
-    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).not.toBeInViewport();
   });
 
   test("clicking outside overlay dismisses it", async ({ page }) => {
@@ -106,7 +106,7 @@ test.describe("Slideshow Overlay Edge Cases", () => {
 
     // Open overlay
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
 
@@ -118,7 +118,7 @@ test.describe("Slideshow Overlay Edge Cases", () => {
 
     // Overlay should be dismissed
     await page.waitForTimeout(500);
-    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).not.toBeInViewport();
   });
 
   test("overlay controls don't trigger slideshow navigation", async ({
@@ -130,12 +130,12 @@ test.describe("Slideshow Overlay Edge Cases", () => {
 
     // Open overlay
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
 
     // Click buttons inside the overlay with small waits to avoid event coalescence
-    await page.getByRole("button", { name: "Pause" }).click();
+    await page.getByRole("button", { name: "Pause slideshow" }).click();
     await page.waitForTimeout(300);
     await page.getByRole("button", { name: "none", exact: true }).click();
     await page.waitForTimeout(300);
@@ -143,7 +143,7 @@ test.describe("Slideshow Overlay Edge Cases", () => {
     await page.waitForTimeout(300);
 
     // Overlay should still be visible (interactions reset hide timer)
-    await expect(page.getByText("Manage Photos")).toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport();
 
     // Slide should NOT have changed (overlay clicks don't propagate)
     expect(await currentSlideSrc(page)).toBe(srcBefore);
@@ -156,7 +156,7 @@ test.describe("Slideshow Overlay Edge Cases", () => {
 
     // Open overlay and change to "none"
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
     await page.getByRole("button", { name: "none" }).click();
@@ -225,35 +225,16 @@ test.describe("Slideshow Overlay Edge Cases", () => {
 
     // Open overlay
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
 
     // Verify interval shows "15s"
     await expect(page.getByText("15s")).toBeVisible();
 
-    // Verify "slide" button is active (has specific styling)
+    // Verify "slide" button is active (has copper bg styling)
     const slideBtn = page.getByRole("button", { name: "slide", exact: true });
-    // Active button has white bg + black text
-    await expect(slideBtn).toHaveClass(/bg-white/);
+    await expect(slideBtn).toHaveClass(/bg-copper/);
   });
 
-  test("manage photos link navigates to gallery", async ({ page }) => {
-    await setupSlideshow(page, 2);
-
-    // Open overlay
-    await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({
-      timeout: 3000,
-    });
-
-    // Click "Manage Photos"
-    await page.getByText("Manage Photos").click();
-
-    // Should navigate to gallery
-    await expect(page).toHaveURL("/");
-    await expect(page.locator("[data-testid='photo-card']")).toHaveCount(2, {
-      timeout: 10000,
-    });
-  });
 });

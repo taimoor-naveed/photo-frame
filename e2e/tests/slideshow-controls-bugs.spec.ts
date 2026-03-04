@@ -47,7 +47,7 @@ test.describe("Slideshow Controls Bugs", () => {
 
     // Open overlay
     await longPress(page);
-    const overlay = page.getByText("Manage Photos");
+    const overlay = page.getByTestId("slideshow-overlay");
     await expect(overlay).toBeInViewport({ timeout: 3000 });
 
     // Wait 2s, then change settings via API (simulating another tab)
@@ -73,7 +73,7 @@ test.describe("Slideshow Controls Bugs", () => {
 
     // Open overlay
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeInViewport({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
 
@@ -84,10 +84,10 @@ test.describe("Slideshow Controls Bugs", () => {
     }
 
     // Overlay should still be visible (last change was just now)
-    await expect(page.getByText("Manage Photos")).toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport();
 
     // Now wait 6s with no changes — overlay should auto-hide
     await page.waitForTimeout(6000);
-    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).not.toBeInViewport();
   });
 });

@@ -150,15 +150,15 @@ Works for both `<img>` and `<video>`.
 - **None**: instant swap
 
 ### Settings Overlay
-Frosted glass bottom sheet. Controls: interval slider, transition toggle, pause/play, "Manage Photos" link. Auto-hides after 5s of inactivity. Any interaction inside the overlay resets the timer. Clicking/tapping outside the overlay dismisses it. Pointer events inside the overlay do not propagate to the slideshow tap zones.
+Frosted glass bottom sheet with drag handle and rounded top corners. Controls: large centered play/pause button, interval slider (3–60s, debounced 400ms), transition segmented control (crossfade / slide / none). Auto-hides after 5s of inactivity; any interaction or WebSocket settings change resets the timer. Clicking/tapping outside the overlay dismisses it. Pointer events inside the overlay do not propagate to the slideshow tap zones.
 
-## UX / Design Principles
+## UX / Design Principles — "Gallery After Dark"
 
-- **Apple-inspired**: generous white space, rounded corners (lg/xl), subtle shadows
-- **System font stack**: -apple-system, BlinkMacSystemFont, SF Pro
-- **Colors**: whites, light grays, one accent color (gray-900 for primary actions)
-- **Transitions**: 200-300ms ease
-- **Overlays**: `backdrop-filter: blur` (frosted glass)
-- **Touch targets**: minimum 44px
+- **Dark editorial theme**: warm navy background (#303548), copper accent (#D4956A)
+- **Typography**: DM Serif Display (headings), Karla (body) — editorial gallery aesthetic
+- **Ambient depth**: gradient mesh blobs (copper + indigo) behind content, film grain overlay
+- **Cards**: surface-colored (#3A4058) with warm shadows, lift-on-hover effect
+- **Frosted glass**: `backdrop-filter: blur` on navbar, slideshow overlay, selection bar
+- **Touch targets**: minimum 44px, large controls in slideshow overlay (56px play/pause)
 - **Responsive**: mobile hamburger nav, desktop inline nav
 - **Photo-first**: UI fades into background, photos/videos are the star

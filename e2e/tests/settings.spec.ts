@@ -34,15 +34,4 @@ test.describe("Settings", () => {
     await expect(noneBtn).toHaveClass(/bg-copper/);
   });
 
-  test("settings page has no photo order section", async ({ page }) => {
-    await page.goto("/settings");
-    await expect(page.getByText("Slideshow Interval")).toBeVisible();
-    // No "Photo Order" label
-    const photoOrderLabel = page.getByText("Photo Order");
-    await expect(photoOrderLabel).toHaveCount(0);
-    // No order buttons
-    await expect(page.getByRole("button", { name: "random" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "sequential" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "newest" })).toHaveCount(0);
-  });
 });

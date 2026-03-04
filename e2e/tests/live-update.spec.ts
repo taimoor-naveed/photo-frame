@@ -8,7 +8,7 @@ test.describe("Live Updates", () => {
     testImagePath,
   }) => {
     await page.goto("/");
-    await expect(page.getByText("No photos yet")).toBeVisible();
+    await expect(page.getByText("Your gallery awaits")).toBeVisible();
 
     // Upload via API
     await apiUploadTestImage(testImagePath);
@@ -39,13 +39,14 @@ test.describe("Live Updates", () => {
     // Give WebSocket time to deliver
     await page.waitForTimeout(1500);
 
-    // Open overlay
-    await page.locator(".fixed.inset-0.bg-black").click({
-      position: { x: 100, y: 100 },
-    });
+    // Open overlay via long press
+    const container = page.locator(".fixed.inset-0.bg-black");
+    await container.dispatchEvent("pointerdown");
+    await page.waitForTimeout(600);
+    await container.dispatchEvent("pointerup");
 
     // Overlay should show
-    await expect(page.getByText("Manage Photos")).toBeVisible({
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({
       timeout: 3000,
     });
   });

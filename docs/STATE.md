@@ -10,10 +10,11 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 |-------|-------|--------|
 | Backend (pytest) | 52 | All passing |
 | Frontend (vitest) | 98 | All passing |
-| E2E (playwright) | 79 (3 skipped) | All passing |
-| **Total** | **~229** | **Green** |
+| E2E (playwright) | 195 passed, 2 flaky (3 skipped) | Passing |
+| **Total** | **~345** | **Green** |
 
-E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-only / desktop-only).
+E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
+E2E flaky: 2 video tests (H.264 doesn't play in headless Chromium — known issue).
 
 ---
 
@@ -33,7 +34,7 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 - **Gallery**: responsive grid, click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state, multi-select bulk deletion (long-press to select)
 - **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), delete with confirmation, keyboard/backdrop dismiss
 - **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
-- **Settings**: interval slider (3-60s), transition type toggle, instant save
+- **Settings**: interval slider (3-60s), transition type segmented control, instant save
 - **Slideshow**: fullscreen with blur background effect, crossfade/slide/none transitions, auto-advance timer
 - **Navigation**: tap right/left halves, arrow keys, long press for overlay, space to pause, escape to close overlay
 - **Video**: autoplay muted, waits for long videos to finish, shows first frame when ended with interval remaining
@@ -59,6 +60,16 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport (mobile-
 ---
 
 ## Recent Changes
+
+### UI Redesign — "Gallery After Dark" (2026-03-04)
+
+Complete frontend overhaul with dark editorial theme:
+
+- **Design system**: warm navy (#303548) background, copper (#D4956A) accent, DM Serif Display + Karla typography, ambient gradient mesh + film grain overlay
+- **Slideshow overlay redesign**: removed "Manage Photos" link, new bottom sheet with drag handle, large centered play/pause button (56px copper circle), debounced interval slider, iOS-style segmented control for transitions
+- **Slideshow bug fixes**: overlay auto-hide timer now resets on WS settings changes, video pauses when slideshow is paused, slider debounced (400ms)
+- **Component styling**: frosted glass navbar, floating photo cards with warm shadows, copper accents throughout
+- **Test updates**: all 9 test files updated for new UI text ("Your gallery awaits", "Drop your memories here"), overlay uses `data-testid="slideshow-overlay"`, removed duplicate "no photo order" e2e test
 
 ### QA Breaker Bug Fixes (2026-03-02)
 

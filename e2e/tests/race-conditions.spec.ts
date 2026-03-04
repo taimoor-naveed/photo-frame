@@ -262,7 +262,7 @@ test.describe("Race Conditions", () => {
     await expect(page.getByTestId("media-detail-modal")).not.toBeVisible({
       timeout: 5000,
     });
-    await expect(page.getByText("No photos yet")).toBeVisible({
+    await expect(page.getByText("Your gallery awaits")).toBeVisible({
       timeout: 5000,
     });
   });
