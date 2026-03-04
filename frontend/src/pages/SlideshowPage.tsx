@@ -128,6 +128,11 @@ export default function SlideshowPage() {
       currentMedia.duration &&
       currentMedia.duration > interval
     ) {
+      // Video already ended (e.g. single-item playlist, new media just added) — advance now
+      if (videoRef.current?.ended && playlist.length > 1) {
+        setTimeout(() => goNextRef.current(), 0);
+        return;
+      }
       // Video is longer than interval — wait for it to finish
       waitingForVideo.current = true;
       return;
