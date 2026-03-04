@@ -18,10 +18,12 @@ def tmp_dirs(tmp_path):
     originals = tmp_path / "originals"
     thumbnails = tmp_path / "thumbnails"
     transcoded = tmp_path / "transcoded"
+    display = tmp_path / "display"
     originals.mkdir()
     thumbnails.mkdir()
     transcoded.mkdir()
-    return {"originals": originals, "thumbnails": thumbnails, "transcoded": transcoded}
+    display.mkdir()
+    return {"originals": originals, "thumbnails": thumbnails, "transcoded": transcoded, "display": display}
 
 
 @pytest.fixture()
@@ -46,9 +48,11 @@ def client(tmp_path, monkeypatch):
     originals = tmp_path / "originals"
     thumbnails = tmp_path / "thumbnails"
     transcoded = tmp_path / "transcoded"
+    display = tmp_path / "display"
     originals.mkdir()
     thumbnails.mkdir()
     transcoded.mkdir()
+    display.mkdir()
 
     # All services/routers read from app.config at call time,
     # so patching config is sufficient
@@ -56,6 +60,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ORIGINALS_DIR", originals)
     monkeypatch.setattr(config, "THUMBNAILS_DIR", thumbnails)
     monkeypatch.setattr(config, "TRANSCODED_DIR", transcoded)
+    monkeypatch.setattr(config, "DISPLAY_DIR", display)
 
     # Patch database
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
@@ -116,6 +121,15 @@ def sample_heic_rgba() -> bytes:
     img = Image.new("RGBA", (640, 480), color=(255, 0, 0, 128))
     buf = io.BytesIO()
     pillow_heif.from_pillow(img).save(buf, format="HEIF")
+    return buf.getvalue()
+
+
+@pytest.fixture()
+def sample_jpeg_large() -> bytes:
+    """Create a JPEG image larger than DISPLAY_MAX_SIZE (2400x1800)."""
+    img = Image.new("RGB", (2400, 1800), color="purple")
+    buf = io.BytesIO()
+    img.save(buf, "JPEG")
     return buf.getvalue()
 
 

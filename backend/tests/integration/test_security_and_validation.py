@@ -40,6 +40,14 @@ def test_path_traversal_transcoded(client):
     )
 
 
+def test_path_traversal_display(client):
+    """Path traversal attack on the display endpoint must be blocked."""
+    response = client.get("/uploads/display/../../../etc/passwd")
+    assert response.status_code in (400, 404, 422), (
+        f"Path traversal succeeded! Got status {response.status_code}"
+    )
+
+
 def test_path_traversal_encoded_dots(client):
     """URL-encoded path traversal: %2e%2e%2f should also be blocked."""
     response = client.get("/uploads/originals/%2e%2e/%2e%2e/%2e%2e/etc/passwd")

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, originalUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
+import { api, displayUrl, originalUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
 import { useWebSocket, type WsEvent } from "../hooks/useWebSocket";
 import SlideshowOverlay from "../components/SlideshowOverlay";
 
@@ -337,7 +337,7 @@ export default function SlideshowPage() {
     const nextMedia = playlist[nextIdx];
     if (nextMedia?.media_type === "photo") {
       const img = new Image();
-      img.src = originalUrl(nextMedia);
+      img.src = displayUrl(nextMedia);
     }
   }, [currentIndex, playlist]);
 
@@ -464,7 +464,7 @@ interface SlideProps {
 }
 
 const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
-  const src = originalUrl(media);
+  const src = displayUrl(media);
 
   if (media.media_type === "video") {
     return (

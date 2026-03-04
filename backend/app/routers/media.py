@@ -13,7 +13,7 @@ from app.database import SessionLocal, get_db
 from app.models import Media
 from app.schemas import BulkDeleteRequest, BulkDeleteResponse, MediaListOut, MediaOut
 from app.services.image import process_image
-from app.services.video import needs_transcode, save_video_original, transcode_to_h264
+from app.services.video import needs_transcode, save_video_original, scale_video_for_display, transcode_to_h264
 from app.websocket import manager
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -59,6 +59,7 @@ def _transcode_in_background(
             if media:
                 media.processing_status = "ready"
                 media.transcoded_filename = transcoded_filename
+                media.display_filename = transcoded_filename  # transcode already scales to 1920
                 db.commit()
                 db.refresh(media)
                 _broadcast(loop, {
@@ -69,6 +70,60 @@ def _transcode_in_background(
             db.close()
     except Exception:
         logger.exception("Transcode failed for media_id=%s", media_id)
+        db = SessionLocal()
+        try:
+            media = db.query(Media).filter(Media.id == media_id).first()
+            if media:
+                media.processing_status = "error"
+                db.commit()
+                _broadcast(loop, {
+                    "type": "media_processing_error",
+                    "payload": {"id": media_id},
+                })
+        finally:
+            db.close()
+
+
+def _scale_display_in_background(
+    media_id: int,
+    original_path: Path,
+    duration: float,
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    """Scale a browser-compatible video to display size in a background thread."""
+    try:
+        display_filename = f"display_{uuid.uuid4()}.mp4"
+        last_broadcast = [0]
+
+        def _on_progress(pct: int) -> None:
+            if pct - last_broadcast[0] >= 3 or pct >= 100:
+                last_broadcast[0] = pct
+                _broadcast(loop, {
+                    "type": "media_processing_progress",
+                    "payload": {"id": media_id, "progress": pct},
+                })
+
+        scale_video_for_display(
+            original_path, display_filename,
+            duration=duration, on_progress=_on_progress,
+        )
+
+        db = SessionLocal()
+        try:
+            media = db.query(Media).filter(Media.id == media_id).first()
+            if media:
+                media.processing_status = "ready"
+                media.display_filename = display_filename
+                db.commit()
+                db.refresh(media)
+                _broadcast(loop, {
+                    "type": "media_processing_complete",
+                    "payload": MediaOut.model_validate(media).model_dump(mode="json"),
+                })
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("Display scaling failed for media_id=%s", media_id)
         db = SessionLocal()
         try:
             media = db.query(Media).filter(Media.id == media_id).first()
@@ -125,6 +180,7 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 height=info["height"],
                 file_size=info["file_size"],
                 thumb_filename=info["thumb_filename"],
+                display_filename=info.get("display_filename"),
                 processing_status="ready",
                 content_hash=content_hash,
             )
@@ -143,6 +199,10 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
             except (ValueError, Exception) as exc:
                 raise HTTPException(400, f"Invalid video file '{original_name}': {exc}") from exc
             require_transcode = needs_transcode(info["codec"])
+            needs_display_scale_check = (
+                not require_transcode
+                and max(info["width"], info["height"]) > config.DISPLAY_MAX_SIZE
+            )
             media = Media(
                 filename=info["filename"],
                 original_name=original_name,
@@ -153,7 +213,7 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 duration=info["duration"],
                 codec=info["codec"],
                 thumb_filename=info["thumb_filename"],
-                processing_status="processing" if require_transcode else "ready",
+                processing_status="processing" if (require_transcode or needs_display_scale_check) else "ready",
                 content_hash=content_hash,
             )
             db.add(media)
@@ -166,10 +226,19 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
             )
 
             if require_transcode:
-                # Kick off transcode in background thread
+                # Kick off transcode in background thread (also scales to DISPLAY_MAX_SIZE)
                 original_path = config.ORIGINALS_DIR / info["filename"]
                 thread = threading.Thread(
                     target=_transcode_in_background,
+                    args=(media.id, original_path, info["duration"], loop),
+                    daemon=True,
+                )
+                thread.start()
+            elif needs_display_scale_check:
+                # Browser-compatible but oversized — scale in background
+                original_path = config.ORIGINALS_DIR / info["filename"]
+                thread = threading.Thread(
+                    target=_scale_display_in_background,
                     args=(media.id, original_path, info["duration"], loop),
                     daemon=True,
                 )
@@ -232,6 +301,8 @@ async def bulk_delete_media(body: BulkDeleteRequest, db: Session = Depends(get_d
 
         if media.transcoded_filename:
             (config.TRANSCODED_DIR / media.transcoded_filename).unlink(missing_ok=True)
+        if media.display_filename:
+            (config.DISPLAY_DIR / media.display_filename).unlink(missing_ok=True)
 
         db.delete(media)
         deleted.append(media_id)
@@ -262,6 +333,8 @@ async def delete_media(media_id: int, db: Session = Depends(get_db)):
 
     if media.transcoded_filename:
         (config.TRANSCODED_DIR / media.transcoded_filename).unlink(missing_ok=True)
+    if media.display_filename:
+        (config.DISPLAY_DIR / media.display_filename).unlink(missing_ok=True)
 
     db.delete(media)
     db.commit()
