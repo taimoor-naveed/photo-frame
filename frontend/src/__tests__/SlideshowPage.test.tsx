@@ -21,6 +21,7 @@ function makePhoto(id: number, name?: string): Media {
     codec: null,
     thumb_filename: `thumb_photo${id}.jpg`,
     transcoded_filename: null,
+    display_filename: null,
     processing_status: "ready" as const,
     content_hash: `hash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
@@ -43,6 +44,7 @@ function makeVideo(
     codec: "h264",
     thumb_filename: `thumb_video${id}.jpg`,
     transcoded_filename: null,
+    display_filename: null,
     processing_status: status,
     content_hash: `vhash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
@@ -190,6 +192,59 @@ describe("SlideshowPage", () => {
     expect(
       screen.getByText("Upload photos to start slideshow"),
     ).toBeInTheDocument();
+  });
+
+  it("uses displayUrl for photos with display_filename", async () => {
+    const photoWithDisplay = {
+      ...makePhoto(1),
+      display_filename: "display_abc.jpg",
+    };
+    mockFetch([photoWithDisplay]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    expect(getCurrentMediaId()).toBe(1);
+    const fg = document.querySelector("[data-media-id='1']") as HTMLImageElement;
+    // Should use display URL, not original
+    expect(fg.src).toContain("/uploads/display/display_abc.jpg");
+    expect(fg.src).not.toContain("/uploads/originals/");
+  });
+
+  it("uses originalUrl for photos without display_filename", async () => {
+    mockFetch([makePhoto(1)]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const fg = document.querySelector("[data-media-id='1']") as HTMLImageElement;
+    expect(fg.src).toContain("/uploads/originals/photo1.jpg");
+  });
+
+  it("uses displayUrl for videos with display_filename", async () => {
+    const videoWithDisplay = {
+      ...makeVideo(1),
+      display_filename: "display_vid.mp4",
+    };
+    mockFetch([videoWithDisplay]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const video = document.querySelector("video") as HTMLVideoElement;
+    expect(video.src).toContain("/uploads/display/display_vid.mp4");
   });
 
   it("shows first photo immediately when added to empty slideshow via WS", async () => {

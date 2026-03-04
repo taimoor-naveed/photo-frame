@@ -8,10 +8,10 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 82 | All passing |
-| Frontend (vitest) | 98 | All passing |
+| Backend (pytest) | 101 | All passing |
+| Frontend (vitest) | 115 | All passing |
 | E2E (playwright) | 195 passed, 2 flaky (3 skipped) | Passing |
-| **Total** | **~375** | **Green** |
+| **Total** | **~411** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 E2E flaky: 2 video tests (H.264 doesn't play in headless Chromium — known issue).
@@ -132,6 +132,26 @@ Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slid
 - Added 2 new critical tests: first-photo-to-empty-slideshow and add-during-video-playback
 - Added `currentSlideMediaId()` helper
 
+### Display-Optimized Media + Download Button (2026-03-04)
+
+Slideshow now serves display-optimized media (1920px max) instead of full originals, reducing bandwidth for RPi kiosk.
+
+- **Backend config**: `DISPLAY_DIR` (`data/display/`), `DISPLAY_MAX_SIZE = 1920`
+- **DB**: `display_filename` column on media table (nullable, idempotent migration)
+- **Image processing**: `process_image()` generates display JPEG (Q90, LANCZOS) when `max(w,h) > 1920`
+- **Video processing**: `transcode_to_h264()` now includes scale filter capping at 1920px. New `scale_video_for_display()` for browser-compatible oversized videos. Background thread pattern matches existing transcode flow.
+- **Upload router**: Photos set `display_filename` from `process_image()`. Videos: transcoded ones get `display_filename = transcoded_filename` (already scaled). Browser-compatible oversized videos get background scaling via `_scale_display_in_background()`.
+- **Delete handlers**: Clean up display files on single and bulk delete
+- **Serve display files**: `GET /uploads/display/{filename}` route
+- **Frontend**: `displayUrl(media)` helper — returns display file URL if available, falls back to `originalUrl()`. Slideshow `Slide` component + preloader use `displayUrl()`. Gallery modal keeps `originalUrl()` for full-res viewing.
+- **Download button**: Added to `MediaDetailModal` header bar (before delete), downloads original via `<a download>`.
+
+### Deployment Topology
+
+- **Prod containers**: Windows PC (`home@home-pc`), runs `docker-compose.prod.yml`
+- **Slideshow kiosk**: RPi 4 (`pi@photoframe`, password: `photoframe`), 1024x600 display
+- **Kiosk browser**: Chromium via labwc autostart pointing to `http://home-pc/slideshow`
+
 ---
 
 ## Next Up
@@ -146,5 +166,4 @@ Write an Ansible playbook from scratch to provision a fresh Raspberry Pi 4. Shou
 - **No user auth** — single-user photo frame, no login needed
 - **No image editing** — crop, rotate, filters not implemented
 - **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale
-- **RPi 4 deployment** — target device is RPi 4 with 4GB RAM; may need display optimization (pre-compositing media to target resolution) to avoid heavy CSS blur on the Pi's browser
 - **No offline mode** — requires network connection to backend

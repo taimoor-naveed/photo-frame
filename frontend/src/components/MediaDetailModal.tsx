@@ -91,6 +91,27 @@ export default function MediaDetailModal({
               {media.original_name}
             </h2>
             <div className="flex items-center gap-1 shrink-0">
+              <a
+                href={originalUrl(media)}
+                download={media.original_name}
+                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors"
+                aria-label="Download"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                  />
+                </svg>
+              </a>
               <button
                 onClick={() => setConfirmOpen(true)}
                 className="rounded-lg p-2 text-warm-gray hover:text-red-400 hover:bg-red-500/10 transition-colors"

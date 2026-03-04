@@ -94,7 +94,7 @@ def transcode_to_h264(
     duration: float | None = None,
     on_progress: Callable[[int], None] | None = None,
 ) -> Path:
-    """Transcode video to H.264 MP4.
+    """Transcode video to H.264 MP4, capped at DISPLAY_MAX_SIZE.
 
     If *duration* and *on_progress* are provided, progress (0-100) is reported
     via the callback by parsing ffmpeg ``-progress`` output.
@@ -110,10 +110,12 @@ def transcode_to_h264(
         )
 
     # Simple path — no progress tracking
+    s = config.DISPLAY_MAX_SIZE
     subprocess.run(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
+            "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-c:a", "aac", "-movflags", "+faststart",
             str(output_path),
@@ -134,10 +136,12 @@ def _transcode_with_progress(
     on_progress: Callable[[int], None],
 ) -> Path:
     """Run ffmpeg with ``-progress pipe:1`` and report percentage via callback."""
+    s = config.DISPLAY_MAX_SIZE
     proc = subprocess.Popen(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
+            "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-c:a", "aac", "-movflags", "+faststart",
             "-progress", "pipe:1",
@@ -223,3 +227,74 @@ def save_video_original(
         "duration": meta["duration"],
         "codec": meta["codec"],
     }
+
+
+def scale_video_for_display(
+    video_path: Path,
+    output_filename: str,
+    display_dir: Path | None = None,
+    duration: float | None = None,
+    on_progress: Callable[[int], None] | None = None,
+) -> Path:
+    """Scale a browser-compatible video down to DISPLAY_MAX_SIZE for slideshow display.
+
+    Unlike transcode_to_h264, this re-encodes only for scaling — the input is already
+    browser-compatible (H.264/VP8/VP9/AV1).
+    """
+    if display_dir is None:
+        display_dir = config.DISPLAY_DIR
+
+    output_path = display_dir / output_filename
+    s = config.DISPLAY_MAX_SIZE
+
+    if on_progress and duration and duration > 0:
+        proc = subprocess.Popen(
+            [
+                "ffmpeg", "-y",
+                "-i", str(video_path),
+                "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
+                "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                "-c:a", "aac", "-movflags", "+faststart",
+                "-progress", "pipe:1",
+                "-nostats",
+                str(output_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        duration_us = duration * 1_000_000
+        last_pct = -1
+
+        for line in proc.stdout:  # type: ignore[union-attr]
+            m = _TIME_RE.match(line.strip())
+            if m:
+                current_us = int(m.group(1))
+                pct = min(int(current_us / duration_us * 100), 99)
+                if pct > last_pct:
+                    last_pct = pct
+                    on_progress(pct)
+
+        proc.wait()
+        if proc.returncode != 0:
+            stderr = proc.stderr.read() if proc.stderr else ""  # type: ignore[union-attr]
+            raise subprocess.CalledProcessError(proc.returncode, "ffmpeg", stderr=stderr)
+
+        on_progress(100)
+        return output_path
+
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            "-c:a", "aac", "-movflags", "+faststart",
+            str(output_path),
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return output_path

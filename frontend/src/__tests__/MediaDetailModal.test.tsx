@@ -14,6 +14,7 @@ const mockPhoto: Media = {
   codec: null,
   thumb_filename: "thumb_abc.jpg",
   transcoded_filename: null,
+  display_filename: null,
   processing_status: "ready",
   content_hash: "abc123",
   uploaded_at: "2026-01-15T14:30:00",
@@ -27,6 +28,7 @@ const mockVideo: Media = {
   media_type: "video",
   thumb_filename: "thumb_clip.jpg",
   transcoded_filename: "transcoded_clip.webm",
+  display_filename: null,
   duration: 15.5,
   codec: "h264",
 };
@@ -192,6 +194,53 @@ describe("MediaDetailModal", () => {
       />,
     );
     expect(screen.getByText("16s")).toBeInTheDocument();
+  });
+
+  // ─── Download Button ───────────────────────────────────
+
+  it("renders download button with correct href for photo", () => {
+    render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const downloadLink = screen.getByLabelText("Download");
+    expect(downloadLink).toHaveAttribute("href", "/uploads/originals/abc.jpg");
+    expect(downloadLink).toHaveAttribute("download", "sunset.jpg");
+  });
+
+  it("renders download button with correct href for transcoded video", () => {
+    render(
+      <MediaDetailModal
+        media={mockVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const downloadLink = screen.getByLabelText("Download");
+    // Download should use originalUrl (transcoded path for transcoded video)
+    expect(downloadLink).toHaveAttribute("href", "/uploads/transcoded/transcoded_clip.webm");
+    expect(downloadLink).toHaveAttribute("download", "vacation.mp4");
+  });
+
+  it("download button uses originalUrl, not displayUrl (always full quality)", () => {
+    const photoWithDisplay: Media = {
+      ...mockPhoto,
+      display_filename: "display_abc.jpg",
+    };
+    render(
+      <MediaDetailModal
+        media={photoWithDisplay}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const downloadLink = screen.getByLabelText("Download");
+    // Must download original, NOT display version
+    expect(downloadLink).toHaveAttribute("href", "/uploads/originals/abc.jpg");
+    expect(downloadLink.getAttribute("href")).not.toContain("display");
   });
 
   it("does not show duration for photos", () => {

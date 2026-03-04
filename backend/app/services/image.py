@@ -15,10 +15,11 @@ def process_image(
     original_name: str,
     originals_dir: Path | None = None,
     thumbnails_dir: Path | None = None,
+    display_dir: Path | None = None,
 ) -> dict:
-    """Process an uploaded image: EXIF auto-rotate, save original, generate thumbnail.
+    """Process an uploaded image: EXIF auto-rotate, save original, generate thumbnail + display version.
 
-    Returns dict with: filename, width, height, file_size, thumb_filename
+    Returns dict with: filename, width, height, file_size, thumb_filename, display_filename
     Raises ValueError for corrupt or empty files.
     """
     if not file_bytes:
@@ -28,6 +29,8 @@ def process_image(
         originals_dir = config.ORIGINALS_DIR
     if thumbnails_dir is None:
         thumbnails_dir = config.THUMBNAILS_DIR
+    if display_dir is None:
+        display_dir = config.DISPLAY_DIR
 
     ext = Path(original_name).suffix.lower()
     if ext == ".heic":
@@ -63,6 +66,19 @@ def process_image(
         thumb_path = thumbnails_dir / thumb_filename
         thumb.save(thumb_path, "JPEG", quality=85)
         created_files.append(thumb_path)
+
+        # Generate display-optimized version if image exceeds DISPLAY_MAX_SIZE
+        display_filename = None
+        max_dim = max(width, height)
+        if max_dim > config.DISPLAY_MAX_SIZE:
+            display_filename = f"display_{uuid.uuid4()}.jpg"
+            display_img = img.copy()
+            display_img.thumbnail(
+                (config.DISPLAY_MAX_SIZE, config.DISPLAY_MAX_SIZE), Image.LANCZOS
+            )
+            display_path = display_dir / display_filename
+            display_img.save(display_path, "JPEG", quality=90)
+            created_files.append(display_path)
     except (Image.UnidentifiedImageError, Image.DecompressionBombError, OSError, SyntaxError) as exc:
         # Clean up any partially written files
         for f in created_files:
@@ -75,4 +91,5 @@ def process_image(
         "width": width,
         "height": height,
         "file_size": file_size,
+        "display_filename": display_filename,
     }

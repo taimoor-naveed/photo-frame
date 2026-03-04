@@ -366,3 +366,129 @@ def test_bulk_delete_duplicate_ids(client):
     body = r.json()
     assert body["deleted"] == [mid]
     assert body["not_found"] == [mid]
+
+
+# ─── Display-Optimized Media Tests ────────────────────────────
+
+
+def _make_large_jpeg(width: int = 2400, height: int = 1800, color: str = "purple") -> bytes:
+    """Generate a JPEG larger than DISPLAY_MAX_SIZE (1920)."""
+    img = Image.new("RGB", (width, height), color=color)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def test_upload_large_photo_has_display_filename(client):
+    """Uploading a photo > 1920px should set display_filename in the response."""
+    data = _make_large_jpeg()
+    r = client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
+    assert r.status_code == 200
+    media = r.json()[0]
+    assert media["display_filename"] is not None
+    assert media["display_filename"].startswith("display_")
+
+
+def test_upload_small_photo_no_display_filename(client, sample_jpeg):
+    """Uploading a photo ≤ 1920px should have display_filename = null."""
+    r = client.post("/api/media", files=[("files", ("small.jpg", io.BytesIO(sample_jpeg), "image/jpeg"))])
+    assert r.status_code == 200
+    media = r.json()[0]
+    assert media["display_filename"] is None
+
+
+def test_upload_large_photo_display_file_on_disk(client):
+    """Display file should actually exist on disk after upload."""
+    import app.config as cfg
+
+    data = _make_large_jpeg()
+    r = client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
+    media = r.json()[0]
+
+    display_path = cfg.DISPLAY_DIR / media["display_filename"]
+    assert display_path.exists()
+
+
+def test_serve_display_file(client):
+    """GET /uploads/display/{filename} should serve the display file."""
+    data = _make_large_jpeg()
+    r = client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
+    display_filename = r.json()[0]["display_filename"]
+
+    response = client.get(f"/uploads/display/{display_filename}")
+    assert response.status_code == 200
+
+
+def test_serve_display_file_not_found(client):
+    """GET /uploads/display/nonexistent.jpg should return 404."""
+    response = client.get("/uploads/display/nonexistent.jpg")
+    assert response.status_code == 404
+
+
+def test_delete_photo_cleans_up_display_file(client):
+    """Deleting a photo with a display file should remove the display file from disk."""
+    import app.config as cfg
+
+    data = _make_large_jpeg()
+    r = client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
+    media = r.json()[0]
+    media_id = media["id"]
+    display_path = cfg.DISPLAY_DIR / media["display_filename"]
+    assert display_path.exists()
+
+    client.delete(f"/api/media/{media_id}")
+    assert not display_path.exists()
+
+
+def test_bulk_delete_cleans_up_display_files(client):
+    """Bulk delete should remove display files from disk."""
+    import app.config as cfg
+
+    data = _make_large_jpeg()
+    r = client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
+    media = r.json()[0]
+    display_path = cfg.DISPLAY_DIR / media["display_filename"]
+    assert display_path.exists()
+
+    client.request("DELETE", "/api/media/bulk", json={"ids": [media["id"]]})
+    assert not display_path.exists()
+
+
+def test_get_media_includes_display_filename(client):
+    """GET /api/media/{id} should include display_filename field."""
+    data = _make_large_jpeg()
+    r = client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
+    media_id = r.json()[0]["id"]
+
+    response = client.get(f"/api/media/{media_id}")
+    assert response.status_code == 200
+    assert response.json()["display_filename"] is not None
+
+
+def test_list_media_includes_display_filename(client):
+    """GET /api/media should include display_filename in items."""
+    data = _make_large_jpeg()
+    client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
+
+    response = client.get("/api/media")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert "display_filename" in items[0]
+
+
+def test_upload_small_video_no_display_filename(client, sample_video):
+    """Uploading a small video (320x240) should have display_filename = null."""
+    r = client.post("/api/media", files=[("files", ("clip.mp4", io.BytesIO(sample_video), "video/mp4"))])
+    assert r.status_code == 200
+    media = r.json()[0]
+    assert media["display_filename"] is None
+    assert media["processing_status"] == "ready"  # no transcode or scaling needed
+
+
+def test_upload_video_response_has_display_filename_field(client, sample_video):
+    """Video response schema must include display_filename field."""
+    r = client.post("/api/media", files=[("files", ("clip.mp4", io.BytesIO(sample_video), "video/mp4"))])
+    assert r.status_code == 200
+    media = r.json()[0]
+    assert "display_filename" in media
