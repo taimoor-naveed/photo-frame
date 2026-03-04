@@ -31,7 +31,7 @@ test.describe("Settings", () => {
     await expect(page.getByText("Transition")).toBeVisible();
 
     const noneBtn = page.getByRole("button", { name: "none" });
-    await expect(noneBtn).toHaveClass(/bg-gray-900/);
+    await expect(noneBtn).toHaveClass(/bg-copper/);
   });
 
   test("settings page has no photo order section", async ({ page }) => {

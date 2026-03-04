@@ -53,39 +53,42 @@ export default function UploadPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-gray-900 mb-8">Upload</h1>
+      <h1 className="font-display text-3xl text-warm-white mb-10">Upload</h1>
 
       {status === "done" ? (
-        <div className="rounded-2xl bg-white p-12 text-center shadow-sm">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-green-100 mb-4">
-            <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="rounded-2xl bg-surface border border-white/[0.06] p-12 text-center shadow-gallery">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 mb-4">
+            <svg className="h-8 w-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
+          <h2 className="font-display text-2xl text-warm-white mb-2">
             {uploadedCount} file{uploadedCount !== 1 ? "s" : ""} uploaded
           </h2>
           <div className="flex justify-center gap-3 mt-6">
             <button
               onClick={reset}
-              className="rounded-xl px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+              className="rounded-xl px-5 py-2.5 text-sm font-medium text-warm-gray hover:bg-white/[0.06] transition-colors"
             >
               Upload more
             </button>
             <Link
               to="/"
-              className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition-colors"
+              className="inline-flex items-center gap-2 rounded-xl bg-copper px-5 py-2.5 text-sm font-semibold text-ink hover:bg-copper-light transition-colors"
             >
               View Gallery
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
             </Link>
           </div>
         </div>
       ) : (
         <div
-          className={`rounded-2xl border-2 border-dashed bg-white p-12 text-center transition-colors ${
+          className={`rounded-2xl border-2 border-dashed bg-surface p-12 text-center transition-all duration-300 ${
             dragOver
-              ? "border-gray-900 bg-gray-50"
-              : "border-gray-300 hover:border-gray-400"
+              ? "border-copper bg-copper/[0.05] shadow-[0_0_30px_rgba(212,149,106,0.12)]"
+              : "border-white/[0.08] hover:border-white/[0.15]"
           }`}
           onDragOver={(e) => {
             e.preventDefault();
@@ -97,16 +100,16 @@ export default function UploadPage() {
           {status === "uploading" ? (
             <div className="space-y-4">
               <div className="inline-flex h-12 w-12 items-center justify-center mb-2">
-                <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-gray-900" />
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/[0.08] border-t-copper" />
               </div>
-              <p className="text-gray-600 font-medium">
+              <p className="text-warm-white font-medium">
                 Uploading{uploadProgress !== null ? ` — ${uploadProgress}%` : "..."}
               </p>
               {uploadProgress !== null && (
                 <div className="mx-auto max-w-xs">
-                  <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+                  <div className="h-1.5 rounded-full bg-white/[0.08] overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-gray-900 transition-all duration-300 ease-out"
+                      className="h-full rounded-full bg-copper transition-all duration-300 ease-out"
                       style={{ width: `${uploadProgress}%` }}
                     />
                   </div>
@@ -115,18 +118,18 @@ export default function UploadPage() {
             </div>
           ) : (
             <>
-              <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="mx-auto h-12 w-12 text-warm-muted mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
-              <p className="text-gray-600 mb-2">
-                Drag and drop photos or videos here
+              <p className="font-display text-xl text-warm-white mb-2">
+                Drop your memories here
               </p>
-              <p className="text-sm text-gray-400 mb-6">
+              <p className="text-sm text-warm-gray mb-6">
                 JPG, PNG, WEBP, MP4, MOV — up to 200MB
               </p>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center rounded-xl bg-gray-900 px-6 py-3 text-sm font-medium text-white shadow-sm hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center rounded-xl bg-copper px-6 py-3 text-sm font-semibold text-ink hover:bg-copper-light transition-colors"
               >
                 Choose Files
               </button>
@@ -147,7 +150,7 @@ export default function UploadPage() {
                 }}
               />
               {status === "error" && (
-                <p className="mt-4 text-sm text-red-500">{errorMsg}</p>
+                <p className="mt-4 text-sm text-red-400">{errorMsg}</p>
               )}
             </>
           )}

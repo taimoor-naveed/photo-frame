@@ -102,7 +102,7 @@ describe("GalleryPage", () => {
     renderGallery();
 
     await waitFor(() => {
-      expect(screen.getByText("No photos yet")).toBeInTheDocument();
+      expect(screen.getByText("Your gallery awaits")).toBeInTheDocument();
     });
     expect(screen.getByText("Upload Photos")).toBeInTheDocument();
   });
@@ -195,7 +195,7 @@ describe("GalleryPage", () => {
 
     // Photo should be gone
     await waitFor(() => {
-      expect(screen.getByText("No photos yet")).toBeInTheDocument();
+      expect(screen.getByText("Your gallery awaits")).toBeInTheDocument();
     });
   });
 

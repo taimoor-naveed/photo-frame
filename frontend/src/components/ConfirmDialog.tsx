@@ -41,18 +41,18 @@ export default function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={onCancel}
     >
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+        className="relative w-full max-w-sm rounded-2xl bg-surface p-6 shadow-gallery-xl border border-white/[0.06]"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-        <p className="text-sm text-gray-500 mb-6">{message}</p>
+        <h3 className="text-lg font-semibold text-warm-white mb-2">{title}</h3>
+        <p className="text-sm text-warm-gray mb-6">{message}</p>
         <div className="flex gap-3 justify-end">
           <button
             ref={cancelRef}
             onClick={onCancel}
-            className="rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+            className="rounded-xl px-4 py-2.5 text-sm font-medium text-warm-gray hover:bg-white/[0.06] transition-colors"
           >
             Cancel
           </button>

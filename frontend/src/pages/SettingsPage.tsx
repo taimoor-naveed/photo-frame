@@ -34,12 +34,12 @@ export default function SettingsPage() {
   if (loading || !settings) {
     return (
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900 mb-8">Settings</h1>
-        <div className="rounded-2xl bg-white p-8 shadow-sm space-y-8">
+        <h1 className="font-display text-3xl text-warm-white mb-10">Settings</h1>
+        <div className="rounded-2xl bg-surface border border-white/[0.06] p-8 shadow-gallery space-y-8">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="animate-pulse">
-              <div className="h-4 w-32 bg-gray-200 rounded mb-3" />
-              <div className="h-10 w-full bg-gray-100 rounded-xl" />
+              <div className="h-3 w-32 bg-white/[0.06] rounded mb-3" />
+              <div className="h-10 w-full bg-white/[0.04] rounded-xl" />
             </div>
           ))}
         </div>
@@ -49,24 +49,24 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-2xl font-semibold text-gray-900">Settings</h1>
+      <div className="flex items-center justify-between mb-10">
+        <h1 className="font-display text-3xl text-warm-white">Settings</h1>
         {saved && (
-          <span className="text-sm font-medium text-green-600 animate-in">
+          <span className="text-sm font-medium text-emerald-400">
             Saved
           </span>
         )}
         {error && (
-          <span className="text-sm font-medium text-red-500">{error}</span>
+          <span className="text-sm font-medium text-red-400">{error}</span>
         )}
       </div>
 
-      <div className="rounded-2xl bg-white p-8 shadow-sm space-y-8">
+      <div className="rounded-2xl bg-surface border border-white/[0.06] p-8 shadow-gallery space-y-8">
         {/* Slideshow Interval */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">
+          <label className="block text-xs font-semibold uppercase tracking-widest text-warm-gray mb-4">
             Slideshow Interval
-            <span className="ml-2 text-gray-400 font-normal">
+            <span className="ml-2 normal-case tracking-normal text-copper font-medium">
               {localInterval ?? settings.slideshow_interval}s
             </span>
           </label>
@@ -77,9 +77,9 @@ export default function SettingsPage() {
             step={1}
             value={localInterval ?? settings.slideshow_interval}
             onChange={(e) => handleIntervalChange(Number(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer accent-gray-900"
+            className="w-full"
           />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
+          <div className="flex justify-between text-xs text-warm-muted mt-1.5">
             <span>3s</span>
             <span>60s</span>
           </div>
@@ -87,7 +87,7 @@ export default function SettingsPage() {
 
         {/* Transition Type */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">
+          <label className="block text-xs font-semibold uppercase tracking-widest text-warm-gray mb-4">
             Transition
           </label>
           <div className="flex gap-2">
@@ -97,8 +97,8 @@ export default function SettingsPage() {
                 onClick={() => updateSettings({ transition_type: type })}
                 className={`rounded-xl px-4 py-2.5 text-sm font-medium capitalize transition-colors ${
                   settings.transition_type === type
-                    ? "bg-gray-900 text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    ? "bg-copper text-ink"
+                    : "bg-white/[0.04] text-warm-gray hover:bg-white/[0.08] hover:text-warm-white"
                 }`}
               >
                 {type}
