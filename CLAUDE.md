@@ -44,6 +44,8 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 
 ## Non-Negotiables
 
+- **Docker is the runtime**: Never install app dependencies on the host or use host-installed tools (node, npm, python, pip, etc.) for app tasks. The host environment is irrelevant — different versions can cause false errors. Always use `docker compose exec` or `docker compose run` for package management, lockfile generation, builds, and any command that touches app code or dependencies.
+
 - **No black borders, no cropping**: CSS blur background effect for aspect ratio mismatch
 - **Apple-inspired UI**: white space, rounded corners, frosted glass, system fonts, min 44px touch targets
 - **Photo-first**: UI fades into background, photos are the star

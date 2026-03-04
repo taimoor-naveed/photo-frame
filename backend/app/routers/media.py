@@ -21,8 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 def _broadcast(loop: asyncio.AbstractEventLoop, message: dict) -> None:
-    """Schedule a WebSocket broadcast on the given event loop."""
-    asyncio.run_coroutine_threadsafe(manager.broadcast(message), loop)
+    """Schedule a WebSocket broadcast on the given event loop (error-safe)."""
+    try:
+        asyncio.run_coroutine_threadsafe(manager.broadcast(message), loop)
+    except Exception:
+        logger.exception("WebSocket broadcast failed for message type=%s", message.get("type"))
 
 
 def _transcode_in_background(
