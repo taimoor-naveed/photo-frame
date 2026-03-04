@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Settings, SettingsUpdate } from "../api/client";
 
@@ -18,6 +19,33 @@ export default function SlideshowOverlay({
   onUpdateSettings,
   onInteraction,
 }: SlideshowOverlayProps) {
+  const [localInterval, setLocalInterval] = useState(settings.slideshow_interval);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync local state when settings change externally (e.g. WS broadcast)
+  useEffect(() => {
+    setLocalInterval(settings.slideshow_interval);
+  }, [settings.slideshow_interval]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const handleIntervalChange = useCallback(
+    (value: number) => {
+      setLocalInterval(value);
+      onInteraction?.();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        onUpdateSettings({ slideshow_interval: value });
+      }, 400);
+    },
+    [onUpdateSettings, onInteraction],
+  );
+
   const stopPropagation = (e: React.SyntheticEvent) => {
     e.stopPropagation();
     onInteraction?.();
@@ -71,7 +99,7 @@ export default function SlideshowOverlay({
             <label className="block text-xs font-medium text-white/60 mb-2">
               Interval
               <span className="ml-2 text-white/80">
-                {settings.slideshow_interval}s
+                {localInterval}s
               </span>
             </label>
             <input
@@ -79,12 +107,8 @@ export default function SlideshowOverlay({
               min={3}
               max={60}
               step={1}
-              value={settings.slideshow_interval}
-              onChange={(e) =>
-                onUpdateSettings({
-                  slideshow_interval: Number(e.target.value),
-                })
-              }
+              value={localInterval}
+              onChange={(e) => handleIntervalChange(Number(e.target.value))}
               className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-white"
             />
             <div className="flex justify-between text-[10px] text-white/40 mt-1">
