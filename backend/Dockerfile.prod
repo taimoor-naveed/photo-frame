@@ -17,5 +17,5 @@ RUN mkdir -p /app/data/originals /app/data/thumbnails /app/data/transcoded
 
 EXPOSE 8000
 
-# Production: no --reload, multiple workers
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# Production: single worker to preserve background transcode threads
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
