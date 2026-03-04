@@ -137,6 +137,17 @@ export default function SlideshowPage() {
     return () => clearTimeout(advanceTimer.current);
   }, [currentMedia?.id, paused, settings?.slideshow_interval, currentMedia?.media_type, currentMedia?.duration, playlist.length]);
 
+  // ─── Pause/resume video element ─────────────────────────────
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (paused) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play()?.catch(() => {});
+    }
+  }, [paused, currentMedia?.id]);
+
   // ─── Video handlers (stable refs to avoid Slide re-renders) ──
 
   const goNextRef = useRef(goNext);
@@ -257,9 +268,10 @@ export default function SlideshowPage() {
         });
       } else if (event.type === "settings_changed") {
         setSettings(event.payload as unknown as Settings);
+        resetHideTimer();
       }
     },
-    [],
+    [resetHideTimer],
   );
 
   useWebSocket({ onEvent: handleWsEvent });
