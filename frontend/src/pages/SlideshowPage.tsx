@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, displayUrl, originalUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
+import { api, displayUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
 import { useWebSocket, type WsEvent } from "../hooks/useWebSocket";
 import SlideshowOverlay from "../components/SlideshowOverlay";
 
