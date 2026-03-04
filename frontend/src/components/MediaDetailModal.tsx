@@ -78,22 +78,22 @@ export default function MediaDetailModal({
         className="fixed inset-0 z-50 flex items-center justify-center p-4"
         onClick={onClose}
       >
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
 
         {/* Modal card */}
         <div
-          className="relative z-10 w-full max-w-4xl max-h-[90vh] rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col"
+          className="relative z-10 w-full max-w-4xl max-h-[90vh] rounded-2xl bg-surface shadow-gallery-xl border border-white/[0.06] overflow-hidden flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header bar */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-            <h2 className="text-sm font-medium text-gray-900 truncate mr-4">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+            <h2 className="text-sm font-medium text-warm-white truncate mr-4">
               {media.original_name}
             </h2>
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => setConfirmOpen(true)}
-                className="rounded-lg p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                className="rounded-lg p-2 text-warm-gray hover:text-red-400 hover:bg-red-500/10 transition-colors"
                 aria-label="Delete"
               >
                 <svg
@@ -112,7 +112,7 @@ export default function MediaDetailModal({
               </button>
               <button
                 onClick={onClose}
-                className="rounded-lg p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors"
                 aria-label="Close"
               >
                 <svg
@@ -134,13 +134,13 @@ export default function MediaDetailModal({
 
           {/* Error banner */}
           {error && (
-            <div className="px-5 py-2 bg-red-50 border-b border-red-200">
-              <p className="text-sm font-medium text-red-700">Error: {error}</p>
+            <div className="px-5 py-2 bg-red-500/10 border-b border-red-500/20">
+              <p className="text-sm font-medium text-red-400">Error: {error}</p>
             </div>
           )}
 
           {/* Media area */}
-          <div className="flex-1 min-h-0 bg-gray-50 flex items-center justify-center overflow-hidden">
+          <div className="flex-1 min-h-0 bg-black flex items-center justify-center overflow-hidden">
             {media.media_type === "video" ? (
               <video
                 src={originalUrl(media)}
@@ -174,9 +174,9 @@ export default function MediaDetailModal({
           </div>
 
           {/* Metadata bar */}
-          <div className="flex items-center gap-4 px-5 py-3 border-t border-gray-100 text-xs text-gray-500">
+          <div className="flex items-center gap-4 px-5 py-3 border-t border-white/[0.06] text-xs text-warm-gray">
             <span>
-              {media.width} × {media.height}
+              {media.width} &times; {media.height}
             </span>
             <span>{formatFileSize(media.file_size)}</span>
             {media.media_type === "video" && media.duration != null && (

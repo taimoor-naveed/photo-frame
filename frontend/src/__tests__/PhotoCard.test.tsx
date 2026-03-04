@@ -143,7 +143,7 @@ describe("PhotoCard", () => {
     render(<PhotoCard media={mockMedia} selectionMode={true} selected={true} />);
     const card = screen.getByTestId("photo-card");
     expect(card.className).toContain("ring-2");
-    expect(card.className).toContain("ring-blue-500");
+    expect(card.className).toContain("ring-copper");
   });
 
   it("no selection UI in normal mode", () => {

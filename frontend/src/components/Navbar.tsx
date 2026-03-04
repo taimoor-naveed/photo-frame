@@ -13,10 +13,10 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <nav className="bg-white/80 backdrop-blur-lg border-b border-gray-200/50 sticky top-0 z-50">
+    <nav className="bg-ink/80 backdrop-blur-xl shadow-nav border-b border-white/[0.06] sticky top-0 z-50">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
-          <Link to="/" className="text-xl font-semibold tracking-tight text-gray-900">
+          <Link to="/" className="font-display italic text-xl text-warm-white tracking-tight">
             Photo Frame
           </Link>
 
@@ -26,10 +26,10 @@ export default function Navbar() {
               <Link
                 key={link.to}
                 to={link.to}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                className={`rounded-lg px-4 py-2.5 text-sm font-medium tracking-wide transition-colors ${
                   location.pathname === link.to
-                    ? "bg-gray-900 text-white"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    ? "bg-copper/10 text-copper"
+                    : "text-warm-gray hover:text-warm-white hover:bg-white/[0.04]"
                 }`}
               >
                 {link.label}
@@ -39,7 +39,7 @@ export default function Navbar() {
 
           {/* Mobile hamburger */}
           <button
-            className="sm:hidden rounded-lg p-2 text-gray-600 hover:bg-gray-100"
+            className="sm:hidden rounded-lg p-2.5 text-warm-gray hover:bg-white/[0.04]"
             onClick={() => setMenuOpen(!menuOpen)}
             aria-label="Toggle menu"
           >
@@ -61,10 +61,10 @@ export default function Navbar() {
                 key={link.to}
                 to={link.to}
                 onClick={() => setMenuOpen(false)}
-                className={`block rounded-lg px-4 py-3 text-sm font-medium transition-colors ${
+                className={`block rounded-lg px-4 py-3 text-sm font-medium tracking-wide transition-colors ${
                   location.pathname === link.to
-                    ? "bg-gray-900 text-white"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    ? "bg-copper/10 text-copper"
+                    : "text-warm-gray hover:text-warm-white hover:bg-white/[0.04]"
                 }`}
               >
                 {link.label}

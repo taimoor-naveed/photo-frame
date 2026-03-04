@@ -93,7 +93,7 @@ export default function GalleryPage() {
     return (
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="aspect-[4/3] animate-pulse rounded-2xl bg-gray-200" />
+          <div key={i} className="aspect-[4/3] animate-pulse rounded-2xl bg-surface" />
         ))}
       </div>
     );
@@ -102,13 +102,15 @@ export default function GalleryPage() {
   if (error) {
     return (
       <div className="text-center py-20">
-        <p className="text-red-500 mb-4">{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-4"
-        >
-          Retry
-        </button>
+        <div className="inline-block rounded-2xl bg-red-500/10 border border-red-500/20 px-8 py-6">
+          <p className="text-red-400 mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-sm text-warm-gray hover:text-warm-white underline underline-offset-4"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -116,20 +118,23 @@ export default function GalleryPage() {
   if (photos.length === 0) {
     return (
       <div className="text-center py-20">
-        <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 mb-6">
-          <svg className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="inline-flex h-20 w-20 items-center justify-center rounded-2xl bg-surface mb-6">
+          <svg className="h-10 w-10 text-warm-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         </div>
-        <h2 className="text-2xl font-semibold text-gray-900 mb-2">No photos yet</h2>
-        <p className="text-gray-500 mb-8 max-w-sm mx-auto">
-          Upload your first photos to get started with your photo frame.
+        <h2 className="font-display text-3xl text-warm-white mb-3">Your gallery awaits</h2>
+        <p className="text-warm-gray mb-8 max-w-sm mx-auto">
+          Upload your first photos to bring this space to life.
         </p>
         <Link
           to="/upload"
-          className="inline-flex items-center rounded-xl bg-gray-900 px-6 py-3 text-sm font-medium text-white shadow-sm hover:bg-gray-800 transition-colors"
+          className="inline-flex items-center gap-2 rounded-xl bg-copper px-6 py-3 text-sm font-semibold text-ink hover:bg-copper-light transition-colors"
         >
           Upload Photos
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
         </Link>
       </div>
     );
@@ -137,40 +142,45 @@ export default function GalleryPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900">
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="font-display text-3xl text-warm-white">
           Gallery
-          <span className="ml-2 text-base font-normal text-gray-400">{total}</span>
+          <span className="ml-3 text-lg font-sans font-normal text-warm-muted">{total}</span>
         </h1>
         <Link
           to="/upload"
-          className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-gray-800 transition-colors"
+          className="rounded-xl bg-copper px-4 py-2.5 text-sm font-semibold text-ink hover:bg-copper-light transition-colors"
         >
           Upload
         </Link>
       </div>
       {deleteError && (
-        <div className="mb-4 flex items-center justify-between rounded-xl bg-red-50 border border-red-200 px-4 py-3">
-          <p className="text-sm font-medium text-red-700">{deleteError}</p>
+        <div className="mb-4 flex items-center justify-between rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3">
+          <p className="text-sm font-medium text-red-400">{deleteError}</p>
           <button
             onClick={() => setDeleteError(null)}
-            className="ml-4 text-red-400 hover:text-red-600 text-sm shrink-0"
+            className="ml-4 text-red-400 hover:text-red-300 text-sm shrink-0"
           >
             Dismiss
           </button>
         </div>
       )}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {photos.map((media) => (
-          <PhotoCard
+        {photos.map((media, i) => (
+          <div
             key={media.id}
-            media={media}
-            onClick={(m) => setSelectedMedia(m)}
-            selectionMode={selectionMode}
-            selected={selectedIds.has(media.id)}
-            onLongPress={handleLongPress}
-            onToggleSelect={handleToggleSelect}
-          />
+            className="animate-fade-in-up"
+            style={{ animationDelay: `${Math.min(i, 11) * 60}ms` }}
+          >
+            <PhotoCard
+              media={media}
+              onClick={(m) => setSelectedMedia(m)}
+              selectionMode={selectionMode}
+              selected={selectedIds.has(media.id)}
+              onLongPress={handleLongPress}
+              onToggleSelect={handleToggleSelect}
+            />
+          </div>
         ))}
       </div>
 
