@@ -8,10 +8,10 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 52 | All passing |
+| Backend (pytest) | 82 | All passing |
 | Frontend (vitest) | 98 | All passing |
 | E2E (playwright) | 195 passed, 2 flaky (3 skipped) | Passing |
-| **Total** | **~345** | **Green** |
+| **Total** | **~375** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 E2E flaky: 2 video tests (H.264 doesn't play in headless Chromium — known issue).
@@ -24,6 +24,7 @@ E2E flaky: 2 video tests (H.264 doesn't play in headless Chromium — known issu
 - **Media API**: upload (multi-file), list (paginated), get, delete, bulk delete with file cleanup
 - **Settings API**: get with auto-create defaults, partial update
 - **Video processing**: two-phase upload — fast save + background ffmpeg transcode in thread
+- **HEIC support**: `pillow-heif` plugin registers HEIC/HEIF format, converts to JPEG on upload
 - **Smart transcoding**: only non-browser codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
 - **Progress tracking**: ffmpeg `-progress pipe:1` parsed in real-time, broadcast via WebSocket
 - **Duplicate detection**: SHA-256 content hash, returns existing item if duplicate
@@ -60,6 +61,14 @@ E2E flaky: 2 video tests (H.264 doesn't play in headless Chromium — known issu
 ---
 
 ## Recent Changes
+
+### HEIC Photo Support (2026-03-04)
+
+Added real HEIC/HEIF photo support for iPhone uploads:
+
+- **Dependency**: `pillow-heif==0.21.0` + `libheif-dev` system library in Docker
+- **Backend**: `pillow_heif.register_heif_opener()` in `image.py` — Pillow natively opens HEIC files, existing `.heic` → `.jpg` conversion and RGB mode handling do the rest
+- **Tests**: 10 new tests (5 unit, 5 integration) — failure paths first (corrupt, empty, truncated HEIC), then happy paths (real HEIC processing, RGBA conversion, duplicate detection, no orphaned files). Fixed false-positive test that passed JPEG bytes with `.heic` filename.
 
 ### UI Redesign — "Gallery After Dark" (2026-03-04)
 
@@ -127,20 +136,8 @@ Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slid
 
 ## Next Up
 
-### 1. Eliminate dev/prod environment differences
-The separate prod Dockerfiles and compose file (`Dockerfile.prod`, `docker-compose.prod.yml`) diverged from dev and caused bugs that only appeared on the RPi:
-- **`--workers 2` in `backend/Dockerfile.prod`** killed background transcode threads when worker processes restarted. Fix: use single worker (same as dev).
-- **`_broadcast()` in `backend/app/routers/media.py`** not being error-safe — a failed WebSocket broadcast from a background thread crashed the entire transcode, preventing the DB update. Fix: wrap in try/except.
-- **`frontend/nginx.conf`** missing `client_max_body_size 250m` — nginx rejects uploads >1MB but backend allows 200MB.
-- **`npm ci` in `frontend/Dockerfile.prod`** requires `package-lock.json` which wasn't in the repo (dev uses `npm install`).
-
-**Goal:** Consolidate to a single environment. If prod needs differ (e.g., no hot reload), keep differences minimal and well-documented. The same Docker setup that runs on the Mac should run on the RPi.
-
-### 2. Create deploy playbook for fresh RPi
+### 1. Create deploy playbook for fresh RPi
 Write an Ansible playbook from scratch to provision a fresh Raspberry Pi 4. Should install Docker, copy project files, build and start containers, health check, and set up Chromium kiosk mode for slideshow auto-launch. Rewrite the `deploy/` directory after environment consolidation is done.
-
-### 3. HEIC photo support
-Backend already allows `.heic` extension but Pillow can't open HEIC files without the `pillow-heif` plugin. Need to add the dependency and ensure HEIC photos go through the same upload/thumbnail/display pipeline as JPEG/PNG. iPhones shoot HEIC by default, so this is critical for real-world use.
 
 ---
 

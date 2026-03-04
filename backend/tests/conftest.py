@@ -1,6 +1,7 @@
 import io
 import subprocess
 
+import pillow_heif
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -97,6 +98,24 @@ def sample_png() -> bytes:
     img = Image.new("RGB", (640, 480), color="green")
     buf = io.BytesIO()
     img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture()
+def sample_heic() -> bytes:
+    """Create a minimal HEIC image in memory using pillow-heif."""
+    img = Image.new("RGB", (640, 480), color="blue")
+    buf = io.BytesIO()
+    pillow_heif.from_pillow(img).save(buf, format="HEIF")
+    return buf.getvalue()
+
+
+@pytest.fixture()
+def sample_heic_rgba() -> bytes:
+    """Create a HEIC image with alpha channel."""
+    img = Image.new("RGBA", (640, 480), color=(255, 0, 0, 128))
+    buf = io.BytesIO()
+    pillow_heif.from_pillow(img).save(buf, format="HEIF")
     return buf.getvalue()
 
 

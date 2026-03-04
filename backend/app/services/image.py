@@ -2,9 +2,12 @@ import io
 import uuid
 from pathlib import Path
 
+import pillow_heif
 from PIL import Image, ImageOps
 
 from app import config
+
+pillow_heif.register_heif_opener()
 
 
 def process_image(

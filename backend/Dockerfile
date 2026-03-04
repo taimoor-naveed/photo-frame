@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install ffmpeg for video processing
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg libheif-dev && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
