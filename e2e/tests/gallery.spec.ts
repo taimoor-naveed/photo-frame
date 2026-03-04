@@ -4,7 +4,7 @@ import { test, expect, apiUploadTestImage, getSampleImage } from "../fixtures/ba
 test.describe("Gallery", () => {
   test("shows empty state when no media", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText("No photos yet")).toBeVisible();
+    await expect(page.getByText("Your gallery awaits")).toBeVisible();
     await expect(page.getByText("Upload Photos")).toBeVisible();
   });
 
@@ -56,7 +56,7 @@ test.describe("Gallery", () => {
     await page.getByRole("button", { name: "Delete", exact: true }).last().click();
 
     // Should show empty state
-    await expect(page.getByText("No photos yet")).toBeVisible({
+    await expect(page.getByText("Your gallery awaits")).toBeVisible({
       timeout: 5000,
     });
   });
@@ -138,7 +138,7 @@ test.describe("Multi-Select", () => {
     await page.getByRole("button", { name: "Delete", exact: true }).last().click();
 
     // Should show empty state
-    await expect(page.getByText("No photos yet")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Your gallery awaits")).toBeVisible({ timeout: 10000 });
   });
 
   test("bulk delete partial — some items remain", async ({

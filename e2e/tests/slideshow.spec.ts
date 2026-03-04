@@ -198,7 +198,7 @@ test.describe("Slideshow", () => {
 
     // Long press opens overlay
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({ timeout: 3000 });
     await expect(page.getByText("Transition")).toBeVisible();
 
     // Change transition to "none"
@@ -213,14 +213,14 @@ test.describe("Slideshow", () => {
 
     // Escape closes overlay (slides off-screen via translate-y-full)
     await page.keyboard.press("Escape");
-    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).not.toBeInViewport();
   });
 
   test("slideshow overlay has no order section", async ({ page }) => {
     await setupSlideshow(page, 2);
 
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({ timeout: 3000 });
 
     // No "Order" label or order buttons
     await expect(page.getByText("Order", { exact: true })).toHaveCount(0);
@@ -600,8 +600,8 @@ test.describe("Slideshow", () => {
 
     // Open overlay, then Escape closes it
     await longPress(page);
-    await expect(page.getByText("Manage Photos")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByTestId("slideshow-overlay")).toBeInViewport({ timeout: 3000 });
     await page.keyboard.press("Escape");
-    await expect(page.getByText("Manage Photos")).not.toBeInViewport();
+    await expect(page.getByTestId("slideshow-overlay")).not.toBeInViewport();
   });
 });
