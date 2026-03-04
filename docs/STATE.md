@@ -148,9 +148,11 @@ Slideshow now serves display-optimized media (1920px max) instead of full origin
 
 ### Deployment Topology
 
-- **Prod containers**: Windows PC (`home@home-pc`), runs `docker-compose.prod.yml`
-- **Slideshow kiosk**: RPi 4 (`pi@photoframe`, password: `photoframe`), 1024x600 display
-- **Kiosk browser**: Chromium via labwc autostart pointing to `http://home-pc/slideshow`
+- **Prod containers**: Windows PC (`home@home-pc`), runs `docker-compose.prod.yml` — nginx on port 80, backend on 8000 (internal)
+- **Slideshow kiosk**: Raspberry Pi (`pi@photoframe`), 1024x600 touchscreen display
+- **Kiosk browser**: Chromium in kiosk mode, launched via labwc autostart (`~/.config/labwc/autostart`), pointing to `http://home-pc/slideshow`
+- **Auto-start on boot**: labwc desktop session auto-launches Chromium with `--kiosk --start-fullscreen --enable-features=VaapiVideoDecoder --enable-gpu-rasterization`
+- **Redeploy process**: Create tarball on dev machine (no git on home-pc), SCP to `home@home-pc`, extract over `C:\Users\Home\photo-frame`, run `docker compose -f docker-compose.prod.yml up --build -d`, then reboot Pi
 
 ---
 
