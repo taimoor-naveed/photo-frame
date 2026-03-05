@@ -679,6 +679,42 @@ describe("SlideshowPage", () => {
     expect(idAfter).not.toBe(idBefore);
   });
 
+  it("uses pre-rendered blur image instead of CSS blur", async () => {
+    const photo = { ...makePhoto(1), blur_filename: "blur_abc.jpg" };
+    mockFetch([photo]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+
+    const bgImg = document.querySelector("img[aria-hidden='true']") as HTMLImageElement;
+    expect(bgImg).toBeTruthy();
+    expect(bgImg.src).toContain("/uploads/blur/blur_abc.jpg");
+    expect(bgImg.className).not.toContain("blur-");
+    expect(bgImg.className).not.toContain("scale-");
+  });
+
+  it("falls back to CSS blur when blur_filename is null", async () => {
+    mockFetch([makePhoto(1)]); // blur_filename is null by default
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+
+    const bgImg = document.querySelector("img[aria-hidden='true']") as HTMLImageElement;
+    expect(bgImg).toBeTruthy();
+    expect(bgImg.src).toContain("/uploads/originals/photo1.jpg");
+    expect(bgImg.className).toContain("blur-");
+  });
+
   it("navigation wraps forward and backward at boundaries", async () => {
     mockFetch([makePhoto(1), makePhoto(2)]);
 

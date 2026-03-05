@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, displayUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
+import { api, blurUrl, displayUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
 import { useWebSocket, type WsEvent } from "../hooks/useWebSocket";
 import SlideshowOverlay from "../components/SlideshowOverlay";
 
@@ -465,18 +465,18 @@ interface SlideProps {
 
 const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
   const src = displayUrl(media);
+  const blur = blurUrl(media);
+
+  // Blur background: use pre-rendered image if available, fall back to CSS blur
+  const bgSrc = media.media_type === "video" ? (blur ?? thumbnailUrl(media)) : (blur ?? src);
+  const bgClass = blur
+    ? "absolute inset-0 w-full h-full object-cover brightness-[0.7]"
+    : "absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]";
 
   if (media.media_type === "video") {
     return (
       <>
-        {/* Blur background — use thumbnail image instead of second <video> to halve resource usage */}
-        <img
-          src={thumbnailUrl(media)}
-          className="absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]"
-          alt=""
-          aria-hidden="true"
-        />
-        {/* Foreground video */}
+        <img src={bgSrc} className={bgClass} alt="" aria-hidden="true" />
         <video
           ref={videoRef}
           src={src}
@@ -493,14 +493,7 @@ const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlidePr
 
   return (
     <>
-      {/* Blur background */}
-      <img
-        src={src}
-        className="absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]"
-        alt=""
-        aria-hidden="true"
-      />
-      {/* Foreground image */}
+      <img src={bgSrc} className={bgClass} alt="" aria-hidden="true" />
       <img
         src={src}
         data-media-id={media.id}
