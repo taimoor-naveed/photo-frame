@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app import config
 from app.database import SessionLocal, get_db
 from app.models import Media
-from app.schemas import BulkDeleteRequest, BulkDeleteResponse, MediaListOut, MediaOut
+from app.schemas import BulkDeleteRequest, BulkDeleteResponse, MediaListOut, MediaOut, SlideshowJumpRequest
 from app.services.image import process_image
 from app.services.video import needs_transcode, save_video_original, scale_video_for_display, transcode_to_h264
 from app.websocket import manager
@@ -273,6 +273,17 @@ def list_media(page: int = 1, per_page: int = 20, db: Session = Depends(get_db))
         .all()
     )
     return MediaListOut(items=items, total=total, page=page, per_page=per_page)
+
+
+@router.post("/slideshow/jump")
+async def slideshow_jump(body: SlideshowJumpRequest, db: Session = Depends(get_db)):
+    media = db.query(Media).filter(Media.id == body.media_id).first()
+    if not media:
+        raise HTTPException(404, "Media not found")
+    asyncio.create_task(
+        manager.broadcast({"type": "slideshow_jump", "payload": {"id": body.media_id}})
+    )
+    return {"ok": True}
 
 
 @router.get("/{media_id}", response_model=MediaOut)
