@@ -130,9 +130,9 @@ Videos with non-browser codecs (HEVC, ProRes) are automatically transcoded to H.
 ./scripts/test-all.sh
 
 # Individual suites
-./scripts/test-frontend.sh    # Vitest (57 tests)
-./scripts/test-backend.sh     # pytest (43 tests)
-./scripts/test-e2e.sh         # Playwright (57 tests, desktop + mobile)
+./scripts/test-frontend.sh    # Vitest (115 tests)
+./scripts/test-backend.sh     # pytest (123 tests)
+./scripts/test-e2e.sh         # Playwright (~200 tests, desktop + mobile)
 ```
 
 ## Slideshow Controls
