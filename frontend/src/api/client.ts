@@ -106,6 +106,15 @@ export const api = {
       });
     },
   },
+  slideshow: {
+    jump(mediaId: number): Promise<{ ok: boolean }> {
+      return request("/media/slideshow/jump", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ media_id: mediaId }),
+      });
+    },
+  },
   settings: {
     get(): Promise<Settings> {
       return request("/settings");
