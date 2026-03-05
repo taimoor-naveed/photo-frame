@@ -94,9 +94,12 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **Primitive deps over object deps.** Use `settings?.slideshow_interval` (number) instead of `settings` (object) in effect deps. New object references trigger effects even when values haven't changed.
 - **No third-party gesture libraries.** Raw `onPointerDown`/`onPointerUp` for tap zones and long press. Libraries add indirection that conflicts with simple interaction models.
 - **Design async from day one.** If any operation can take >1s (ffmpeg, large upload, external API), architect it as background + status tracking from the start. Retrofitting async is always a multi-file rework.
+- **Never add deps to `handleWsEvent`'s `useCallback`.** Adding deps causes WS reconnects. Use the ref pattern (`goToSlideRef`, `playlistRef`) to access fresh values inside the handler without new deps.
 
 ## Known Gotchas
 
+- **Router prefix**: `media.router` has `prefix="/api/media"` — new endpoints there become `/api/media/...`, not `/api/...`. Plan URLs accordingly.
+- **No DB record fixtures**: `conftest.py` has `sample_jpeg`/`sample_video` (raw bytes) but no `sample_photo` (DB record). Upload via API in tests to create records.
 - **Playwright `toBeVisible()` vs `toBeInViewport()`**: CSS `translate-y-full` hides elements off-screen but they're still "visible" to Playwright. Use `not.toBeInViewport()` for overlay hide assertions.
 - **H.264 in headless Chromium**: Does not play. Use VP8/WebM (`ffmpeg -c:v libvpx`) for test videos.
 - **WebSocket event format**: Backend sends `{"type": ..., "payload": ...}` to match frontend `WsEvent` interface. Any mismatch is silent (TypeScript `as` cast swallows it).
