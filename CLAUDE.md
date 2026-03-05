@@ -44,10 +44,12 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 
 ## Non-Negotiables
 
+- **Branch per feature**: Always create a new git branch before implementing any new feature or change. Branch from `main` with a descriptive name (e.g., `feature/heic-support`, `fix/upload-validation`). Never commit directly to `main`.
+
 - **Docker is the runtime**: Never install app dependencies on the host or use host-installed tools (node, npm, python, pip, etc.) for app tasks. The host environment is irrelevant — different versions can cause false errors. Always use `docker compose exec` or `docker compose run` for package management, lockfile generation, builds, and any command that touches app code or dependencies.
 
 - **No black borders, no cropping**: CSS blur background effect for aspect ratio mismatch
-- **Apple-inspired UI**: white space, rounded corners, frosted glass, system fonts, min 44px touch targets
+- **"Gallery After Dark" design**: dark editorial theme, frosted glass, min 44px touch targets (see SPEC.md UX section)
 - **Photo-first**: UI fades into background, photos are the star
 - **Sync SQLAlchemy**: no async overhead for this traffic level
 - **Videos auto-play muted**, show first frame when ended with interval remaining
@@ -80,8 +82,10 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **E2E for complex stateful UI.** Unit tests with mocked timers and `act()` don't catch re-render cascades or unstable refs. For slideshow-like features, write E2E tests first.
 - **API-bypass tests are required.** If the frontend constrains input (slider range, dropdown options), write a test that sends the unconstrained value directly to the API. Frontend constraints are UX — backend validation is security.
 - **Debounce tests for rapid-fire UI.** If a control (slider, text input) can fire many events in quick succession, test that the number of API requests is bounded. Unbounced controls waste bandwidth and spam WS broadcasts.
-- **Security tests for file serving.** Test path traversal (`../../../etc/passwd`), URL-encoded variants, and filenames with special characters against every file-serving endpoint.
-- **Use `/test-writer` skill** when writing tests to enforce these patterns automatically.
+- **Security tests for file serving.** Test path traversal (`../../../etc/passwd`), URL-encoded variants, null bytes (`\x00`), and filenames with special characters against every file-serving endpoint.
+- **Null/None tests for every Optional field.** If a Pydantic schema uses `Optional` or `| None`, test explicit `null` in the JSON payload. Pydantic `None` default for "field not sent" still accepts explicit `null` unless validated.
+- **Integer overflow tests for IDs.** Test integers beyond SQLite's int64 range (~9.2×10¹⁸) on any endpoint that accepts IDs. Python `int` has no limit but SQLite does.
+- **Background thread cleanup tests.** If an operation spawns a background thread (ffmpeg transcode, display scaling), test: what happens when the parent record is deleted before the thread finishes? Assert no orphaned files on disk.
 
 ## React Patterns
 
@@ -113,6 +117,17 @@ Five bugs found by adversarial QA testing that the full test suite missed. Root 
 
 **Key takeaway:** A test suite with only happy-path tests gives false confidence. The five bugs above were each one curl/fetch command away from discovery, but 229 existing tests missed all of them.
 
+## Lessons Learned (QA Breaker Round 2 — 2026-03-05)
+
+Four more bugs found despite 114 passing tests. Root cause: tests didn't probe poison inputs or async race conditions.
+
+| Bug | Root Cause | Fix | Lesson |
+|-----|-----------|-----|--------|
+| Null byte in filename → 500 | `pathlib.resolve()` raises `ValueError` on `\x00` | Check for `\x00` + try/except `ValueError` in `_serve_file()` | Every path operation on user input needs null byte defense. |
+| Settings explicit `null` → 500 | `Optional` field accepts `null`, hits SQLite `NOT NULL` | Pydantic `model_validator` rejects explicit `None` in `model_fields_set` | `Optional` in Pydantic means "can be omitted", not "can be null". Test both. |
+| Huge int in bulk delete → 500 | Python `int` is arbitrary-precision but SQLite is int64 | `Field(ge=1, le=2**63-1)` on list items | Always constrain integer ranges at the schema layer, even for IDs. |
+| Delete during processing → orphaned files | Background thread writes output before checking if DB record exists | Clean up output file when record is gone post-processing | Background threads must verify preconditions after long operations, not just before. |
+
 ## Run & Test
 
 ```bash
@@ -133,7 +148,7 @@ Ports: backend=8000, frontend=5173
 
 ## RPi Deployment
 
-- Target: Raspberry Pi 4 (4GB RAM), hostname `rpi4`, user `pi`
+- Target: Raspberry Pi, hostname `photoframe`, user `pi`
 - Use the `term-cli` skill for interactive terminal sessions (SSH, ansible-playbook, etc.)
 - term-cli runs commands in background tmux sessions — use it for SSH into the Pi, running playbooks, checking logs
 - For SSH passwords: ask the user, then use `send-text` to type it

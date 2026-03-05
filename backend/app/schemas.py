@@ -1,8 +1,7 @@
 from datetime import datetime
+from typing import Annotated, Literal
 
-from typing import Literal
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class MediaOut(BaseModel):
@@ -33,7 +32,7 @@ class MediaListOut(BaseModel):
 
 
 class BulkDeleteRequest(BaseModel):
-    ids: list[int]
+    ids: list[Annotated[int, Field(ge=1, le=2**63 - 1)]] = Field(max_length=100)
 
 
 class BulkDeleteResponse(BaseModel):
@@ -51,3 +50,11 @@ class SettingsOut(BaseModel):
 class SettingsUpdate(BaseModel):
     slideshow_interval: int | None = Field(default=None, ge=3, le=3600)
     transition_type: Literal["crossfade", "slide", "none"] | None = None
+
+    @model_validator(mode="after")
+    def reject_explicit_nulls(self):
+        """Reject explicit null values — None is only valid as 'field not sent'."""
+        for field_name in self.model_fields_set:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self

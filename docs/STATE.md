@@ -8,7 +8,7 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 101 | All passing |
+| Backend (pytest) | 123 | All passing |
 | Frontend (vitest) | 115 | All passing |
 | E2E (playwright) | 195 passed, 2 flaky (3 skipped) | Passing |
 | **Total** | **~411** | **Green** |

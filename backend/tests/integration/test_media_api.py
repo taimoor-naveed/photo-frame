@@ -1,4 +1,5 @@
 import io
+import time
 
 from PIL import Image
 
@@ -492,3 +493,160 @@ def test_upload_video_response_has_display_filename_field(client, sample_video):
     assert r.status_code == 200
     media = r.json()[0]
     assert "display_filename" in media
+
+
+# ─── Large Video Display Scaling Tests ────────────────────────
+
+
+def _wait_for_ready(client, media_id: int, timeout: float = 30.0) -> dict:
+    """Poll GET /api/media/{id} until processing_status is no longer 'processing'."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        r = client.get(f"/api/media/{media_id}")
+        media = r.json()
+        if media["processing_status"] != "processing":
+            return media
+        time.sleep(0.3)
+    raise TimeoutError(f"Media {media_id} still processing after {timeout}s")
+
+
+def test_upload_large_video_starts_processing(client, sample_video_large):
+    """Uploading a video > 1920px should return processing_status='processing'."""
+    r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
+    assert r.status_code == 200
+    media = r.json()[0]
+    assert media["processing_status"] == "processing"
+
+
+def test_upload_large_video_gets_display_filename(client, sample_video_large):
+    """After background scaling, large video should have display_filename set."""
+    r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
+    media_id = r.json()[0]["id"]
+
+    media = _wait_for_ready(client, media_id)
+    assert media["processing_status"] == "ready"
+    assert media["display_filename"] is not None
+    assert media["display_filename"].startswith("display_")
+
+
+def test_upload_large_video_display_file_on_disk(client, sample_video_large):
+    """Display file should physically exist on disk after processing completes."""
+    import app.config as cfg
+
+    r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
+    media_id = r.json()[0]["id"]
+
+    media = _wait_for_ready(client, media_id)
+    display_path = cfg.DISPLAY_DIR / media["display_filename"]
+    assert display_path.exists()
+    assert display_path.stat().st_size > 0
+
+
+def test_upload_large_video_display_dimensions_capped(client, sample_video_large):
+    """Display video longest edge must be ≤ 1920px."""
+    import app.config as cfg
+    from app.services.video import get_video_metadata
+
+    r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
+    media_id = r.json()[0]["id"]
+
+    media = _wait_for_ready(client, media_id)
+    display_path = cfg.DISPLAY_DIR / media["display_filename"]
+    meta = get_video_metadata(display_path)
+    assert max(meta["width"], meta["height"]) <= 1920
+
+
+def test_serve_video_display_file(client, sample_video_large):
+    """GET /uploads/display/{filename} should serve the video display file."""
+    r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
+    media_id = r.json()[0]["id"]
+
+    media = _wait_for_ready(client, media_id)
+    response = client.get(f"/uploads/display/{media['display_filename']}")
+    assert response.status_code == 200
+
+
+def test_delete_video_cleans_up_display_file(client, sample_video_large):
+    """Deleting a video with a display file should remove the display file from disk."""
+    import app.config as cfg
+
+    r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
+    media_id = r.json()[0]["id"]
+
+    media = _wait_for_ready(client, media_id)
+    display_path = cfg.DISPLAY_DIR / media["display_filename"]
+    assert display_path.exists()
+
+    client.delete(f"/api/media/{media_id}")
+    assert not display_path.exists()
+
+
+def test_bulk_delete_video_cleans_up_display_file(client, sample_video_large):
+    """Bulk delete should remove video display files from disk."""
+    import app.config as cfg
+
+    r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
+    media_id = r.json()[0]["id"]
+
+    media = _wait_for_ready(client, media_id)
+    display_path = cfg.DISPLAY_DIR / media["display_filename"]
+    assert display_path.exists()
+
+    client.request("DELETE", "/api/media/bulk", json={"ids": [media_id]})
+    assert not display_path.exists()
+
+
+# ─── Delete During Processing Tests ──────────────────────────
+
+
+def _make_hevc_video() -> bytes:
+    """Generate a short HEVC video that requires transcoding."""
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        path = f.name
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=red:s=320x240:d=1",
+            "-c:v", "libx265", "-t", "1",
+            path,
+        ],
+        capture_output=True,
+        check=True,
+    )
+    from pathlib import Path
+    data = Path(path).read_bytes()
+    Path(path).unlink()
+    return data
+
+
+def test_delete_during_processing_no_orphaned_files(client):
+    """Deleting a video mid-transcode must not leave orphaned files on disk."""
+    import app.config as cfg
+
+    hevc_data = _make_hevc_video()
+    r = client.post("/api/media", files=[("files", ("hevc.mp4", io.BytesIO(hevc_data), "video/mp4"))])
+    assert r.status_code == 200
+    media = r.json()[0]
+    media_id = media["id"]
+    assert media["processing_status"] == "processing"
+
+    # Delete immediately while transcode is running
+    dr = client.delete(f"/api/media/{media_id}")
+    assert dr.status_code == 200
+
+    # Wait for background thread to finish (it should clean up after itself)
+    time.sleep(5)
+
+    # No orphaned transcoded files should exist
+    transcoded_files = list(cfg.TRANSCODED_DIR.iterdir())
+    assert len(transcoded_files) == 0, (
+        f"Orphaned transcoded files after delete-during-processing: {[f.name for f in transcoded_files]}"
+    )
+
+    # No orphaned display files should exist
+    display_files = list(cfg.DISPLAY_DIR.iterdir())
+    assert len(display_files) == 0, (
+        f"Orphaned display files after delete-during-processing: {[f.name for f in display_files]}"
+    )
