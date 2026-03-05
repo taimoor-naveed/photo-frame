@@ -13,6 +13,7 @@ export interface Media {
   thumb_filename: string;
   transcoded_filename: string | null;
   display_filename: string | null;
+  blur_filename: string | null;
   processing_status: "processing" | "ready" | "error";
   processing_progress?: number; // 0-100, only during transcoding
   content_hash: string | null;
@@ -128,6 +129,13 @@ export function originalUrl(media: Media): string {
     return `/uploads/transcoded/${media.transcoded_filename}`;
   }
   return `/uploads/originals/${media.filename}`;
+}
+
+export function blurUrl(media: Media): string | null {
+  if (media.blur_filename) {
+    return `/uploads/blur/${media.blur_filename}`;
+  }
+  return null;
 }
 
 export function displayUrl(media: Media): string {
