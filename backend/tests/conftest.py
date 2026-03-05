@@ -148,3 +148,20 @@ def sample_video(tmp_path) -> bytes:
         check=True,
     )
     return video_path.read_bytes()
+
+
+@pytest.fixture()
+def sample_video_large(tmp_path) -> bytes:
+    """Create an MP4 video larger than DISPLAY_MAX_SIZE (2560x1440, H.264)."""
+    video_path = tmp_path / "test_video_large.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:s=2560x1440:d=1",
+            "-c:v", "libx264", "-t", "1",
+            str(video_path),
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return video_path.read_bytes()

@@ -4,6 +4,8 @@ These tests are intentionally strict — they catch real bugs that could ship.
 """
 import io
 
+import pytest
+
 from PIL import Image
 
 
@@ -54,6 +56,50 @@ def test_path_traversal_encoded_dots(client):
     assert response.status_code in (400, 404, 422), (
         f"Encoded path traversal succeeded! Got status {response.status_code}"
     )
+
+
+def test_null_byte_in_filename_originals(client):
+    """Null byte in filename must raise HTTPException(400), not unhandled ValueError."""
+    from fastapi import HTTPException
+    from app.routers.uploads import _serve_file
+    from app import config
+
+    with pytest.raises(HTTPException) as exc_info:
+        _serve_file(config.ORIGINALS_DIR, "test\x00.jpg")
+    assert exc_info.value.status_code == 400
+
+
+def test_null_byte_in_filename_thumbnails(client):
+    """Null byte in thumbnail filename must raise HTTPException(400)."""
+    from fastapi import HTTPException
+    from app.routers.uploads import _serve_file
+    from app import config
+
+    with pytest.raises(HTTPException) as exc_info:
+        _serve_file(config.THUMBNAILS_DIR, "test\x00.jpg")
+    assert exc_info.value.status_code == 400
+
+
+def test_null_byte_in_filename_transcoded(client):
+    """Null byte in transcoded filename must raise HTTPException(400)."""
+    from fastapi import HTTPException
+    from app.routers.uploads import _serve_file
+    from app import config
+
+    with pytest.raises(HTTPException) as exc_info:
+        _serve_file(config.TRANSCODED_DIR, "test\x00.mp4")
+    assert exc_info.value.status_code == 400
+
+
+def test_null_byte_in_filename_display(client):
+    """Null byte in display filename must raise HTTPException(400)."""
+    from fastapi import HTTPException
+    from app.routers.uploads import _serve_file
+    from app import config
+
+    with pytest.raises(HTTPException) as exc_info:
+        _serve_file(config.DISPLAY_DIR, "test\x00.jpg")
+    assert exc_info.value.status_code == 400
 
 
 # ─── Corrupt File Upload Handling ─────────────────────────────────
@@ -167,6 +213,30 @@ def test_settings_empty_string_transition(client):
     )
 
 
+def test_settings_null_interval(client):
+    """Explicit null for slideshow_interval must return 422, not 500."""
+    response = client.put("/api/settings", json={"slideshow_interval": None})
+    assert response.status_code in (400, 422), (
+        f"Null interval caused {response.status_code}, expected 400/422"
+    )
+
+
+def test_settings_null_transition(client):
+    """Explicit null for transition_type must return 422, not 500."""
+    response = client.put("/api/settings", json={"transition_type": None})
+    assert response.status_code in (400, 422), (
+        f"Null transition caused {response.status_code}, expected 400/422"
+    )
+
+
+def test_settings_both_null(client):
+    """Both fields null must return 422, not 500."""
+    response = client.put("/api/settings", json={"slideshow_interval": None, "transition_type": None})
+    assert response.status_code in (400, 422), (
+        f"Both null caused {response.status_code}, expected 400/422"
+    )
+
+
 # ─── Health Endpoint ──────────────────────────────────────────────
 
 
@@ -229,10 +299,9 @@ def test_upload_very_long_filename(client, sample_jpeg):
 
 
 def test_bulk_delete_negative_ids(client):
-    """Negative IDs should not crash — just go to not_found."""
+    """Negative IDs should be rejected by validation."""
     r = client.request("DELETE", "/api/media/bulk", json={"ids": [-1, -999]})
-    assert r.status_code == 200
-    assert r.json()["not_found"] == [-1, -999]
+    assert r.status_code == 422
 
 
 def test_bulk_delete_very_large_id(client):
@@ -240,3 +309,11 @@ def test_bulk_delete_very_large_id(client):
     r = client.request("DELETE", "/api/media/bulk", json={"ids": [2147483647]})
     assert r.status_code == 200
     assert r.json()["not_found"] == [2147483647]
+
+
+def test_bulk_delete_beyond_int64(client):
+    """Integer beyond SQLite int64 range must return 422, not 500."""
+    r = client.request("DELETE", "/api/media/bulk", json={"ids": [99999999999999999999]})
+    assert r.status_code in (400, 422), (
+        f"Huge int caused {r.status_code}, expected 400/422"
+    )

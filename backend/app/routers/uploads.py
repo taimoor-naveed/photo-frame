@@ -9,7 +9,12 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 
 def _serve_file(directory: Path, filename: str) -> FileResponse:
-    path = (directory / filename).resolve()
+    if "\x00" in filename:
+        raise HTTPException(400, "Invalid filename")
+    try:
+        path = (directory / filename).resolve()
+    except (ValueError, OSError):
+        raise HTTPException(400, "Invalid filename")
     if not path.is_relative_to(directory.resolve()):
         raise HTTPException(403, "Access denied")
     if not path.exists() or not path.is_file():

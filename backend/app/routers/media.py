@@ -48,7 +48,7 @@ def _transcode_in_background(
                     "payload": {"id": media_id, "progress": pct},
                 })
 
-        transcode_to_h264(
+        output_path = transcode_to_h264(
             original_path, transcoded_filename,
             duration=duration, on_progress=_on_progress,
         )
@@ -66,6 +66,9 @@ def _transcode_in_background(
                     "type": "media_processing_complete",
                     "payload": MediaOut.model_validate(media).model_dump(mode="json"),
                 })
+            else:
+                # Record was deleted during processing — clean up orphaned file
+                output_path.unlink(missing_ok=True)
         finally:
             db.close()
     except Exception:
@@ -103,7 +106,7 @@ def _scale_display_in_background(
                     "payload": {"id": media_id, "progress": pct},
                 })
 
-        scale_video_for_display(
+        output_path = scale_video_for_display(
             original_path, display_filename,
             duration=duration, on_progress=_on_progress,
         )
@@ -120,6 +123,9 @@ def _scale_display_in_background(
                     "type": "media_processing_complete",
                     "payload": MediaOut.model_validate(media).model_dump(mode="json"),
                 })
+            else:
+                # Record was deleted during processing — clean up orphaned file
+                output_path.unlink(missing_ok=True)
         finally:
             db.close()
     except Exception:

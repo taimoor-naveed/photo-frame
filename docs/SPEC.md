@@ -13,6 +13,7 @@
 | `GET`    | `/uploads/originals/{filename}`   | Serve full-size image/video           |
 | `GET`    | `/uploads/thumbnails/{filename}`  | Serve thumbnail                       |
 | `GET`    | `/uploads/transcoded/{filename}`  | Serve transcoded video (H.264)        |
+| `GET`    | `/uploads/display/{filename}`     | Serve display-optimized media (1920px)|
 
 ### Settings
 | Method | Endpoint         | Description            |
@@ -48,6 +49,7 @@ media:
   thumb_filename TEXT NOT NULL        -- thumbnail filename in thumbnails/
   transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
   processing_status TEXT NOT NULL DEFAULT 'ready'  -- 'processing' | 'ready' | 'error'
+  display_filename TEXT               -- display-optimized file (1920px max), NULL if not needed
   content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection
   uploaded_at DATETIME NOT NULL       -- UTC
 

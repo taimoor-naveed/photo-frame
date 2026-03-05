@@ -8,6 +8,7 @@ from app.services.video import (
     get_video_metadata,
     needs_transcode,
     save_video_original,
+    scale_video_for_display,
 )
 
 
@@ -97,3 +98,114 @@ def test_save_video_original(tmp_dirs):
     assert result["file_size"] > 0
     assert (tmp_dirs["originals"] / result["filename"]).exists()
     assert (tmp_dirs["thumbnails"] / result["thumb_filename"]).exists()
+
+
+# ─── Display-Optimized Video Scaling ─────────────────────────
+
+
+@pytest.fixture()
+def large_video_file(tmp_path) -> Path:
+    """Create a 2560x1440 H.264 video (larger than DISPLAY_MAX_SIZE)."""
+    path = tmp_path / "large.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:s=2560x1440:d=1",
+            "-c:v", "libx264", "-t", "1",
+            str(path),
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return path
+
+
+@pytest.fixture()
+def small_video_file(tmp_path) -> Path:
+    """Create a 640x480 H.264 video (smaller than DISPLAY_MAX_SIZE)."""
+    path = tmp_path / "small.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=green:s=640x480:d=1",
+            "-c:v", "libx264", "-t", "1",
+            str(path),
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return path
+
+
+def test_scale_video_for_display_output_exists(tmp_dirs, large_video_file):
+    """scale_video_for_display should create the output file."""
+    output = scale_video_for_display(
+        large_video_file, "display_test.mp4",
+        display_dir=tmp_dirs["display"],
+    )
+    assert output.exists()
+    assert output.stat().st_size > 0
+
+
+def test_scale_video_for_display_caps_dimensions(tmp_dirs, large_video_file):
+    """2560x1440 video should be scaled so longest edge ≤ 1920."""
+    scale_video_for_display(
+        large_video_file, "display_capped.mp4",
+        display_dir=tmp_dirs["display"],
+    )
+
+    meta = get_video_metadata(tmp_dirs["display"] / "display_capped.mp4")
+    assert max(meta["width"], meta["height"]) <= 1920
+
+
+def test_scale_video_for_display_preserves_aspect_ratio(tmp_dirs, large_video_file):
+    """Aspect ratio should be maintained (2560x1440 → 1920x1080)."""
+    scale_video_for_display(
+        large_video_file, "display_ar.mp4",
+        display_dir=tmp_dirs["display"],
+    )
+
+    meta = get_video_metadata(tmp_dirs["display"] / "display_ar.mp4")
+    # 2560:1440 = 16:9 → 1920:1080
+    assert meta["width"] == 1920
+    assert meta["height"] == 1080
+
+
+def test_scale_video_for_display_small_stays_small(tmp_dirs, small_video_file):
+    """Video ≤ 1920px should keep its original dimensions (min filter preserves)."""
+    scale_video_for_display(
+        small_video_file, "display_small.mp4",
+        display_dir=tmp_dirs["display"],
+    )
+
+    meta = get_video_metadata(tmp_dirs["display"] / "display_small.mp4")
+    assert meta["width"] == 640
+    assert meta["height"] == 480
+
+
+def test_scale_video_for_display_with_progress(tmp_dirs, large_video_file):
+    """Progress callback should be called with increasing percentages up to 100."""
+    progress_values = []
+    scale_video_for_display(
+        large_video_file, "display_prog.mp4",
+        display_dir=tmp_dirs["display"],
+        duration=1.0,
+        on_progress=lambda pct: progress_values.append(pct),
+    )
+
+    assert len(progress_values) > 0
+    assert progress_values[-1] == 100
+    # Values should be non-decreasing
+    assert progress_values == sorted(progress_values)
+
+
+def test_scale_video_for_display_invalid_input(tmp_dirs, tmp_path):
+    """Corrupt input should raise CalledProcessError."""
+    bad_file = tmp_path / "corrupt.mp4"
+    bad_file.write_text("not a video")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        scale_video_for_display(
+            bad_file, "display_fail.mp4",
+            display_dir=tmp_dirs["display"],
+        )
