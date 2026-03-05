@@ -317,3 +317,21 @@ def test_bulk_delete_beyond_int64(client):
     assert r.status_code in (400, 422), (
         f"Huge int caused {r.status_code}, expected 400/422"
     )
+
+
+# ─── Cache Headers ─────────────────────────────────────────
+
+
+def test_uploads_have_cache_headers(client, sample_jpeg):
+    """All /uploads/* responses should have immutable cache headers."""
+    response = client.post(
+        "/api/media",
+        files=[("files", ("photo.jpg", sample_jpeg, "image/jpeg"))],
+    )
+    assert response.status_code == 200
+    media = response.json()[0]
+
+    resp = client.get(f"/uploads/thumbnails/{media['thumb_filename']}")
+    assert resp.status_code == 200
+    assert "max-age=31536000" in resp.headers.get("cache-control", "")
+    assert "immutable" in resp.headers.get("cache-control", "")

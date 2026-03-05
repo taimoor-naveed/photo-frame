@@ -22,6 +22,7 @@ function makePhoto(id: number, name?: string): Media {
     thumb_filename: `thumb_photo${id}.jpg`,
     transcoded_filename: null,
     display_filename: null,
+    blur_filename: null,
     processing_status: "ready" as const,
     content_hash: `hash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
@@ -45,6 +46,7 @@ function makeVideo(
     thumb_filename: `thumb_video${id}.jpg`,
     transcoded_filename: null,
     display_filename: null,
+    blur_filename: null,
     processing_status: status,
     content_hash: `vhash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
@@ -675,6 +677,42 @@ describe("SlideshowPage", () => {
     const idAfter = getCurrentMediaId();
     expect(remaining).toContain(idAfter);
     expect(idAfter).not.toBe(idBefore);
+  });
+
+  it("uses pre-rendered blur image instead of CSS blur", async () => {
+    const photo = { ...makePhoto(1), blur_filename: "blur_abc.jpg" };
+    mockFetch([photo]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+
+    const bgImg = document.querySelector("img[aria-hidden='true']") as HTMLImageElement;
+    expect(bgImg).toBeTruthy();
+    expect(bgImg.src).toContain("/uploads/blur/blur_abc.jpg");
+    expect(bgImg.className).not.toContain("blur-");
+    expect(bgImg.className).not.toContain("scale-");
+  });
+
+  it("falls back to CSS blur when blur_filename is null", async () => {
+    mockFetch([makePhoto(1)]); // blur_filename is null by default
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+
+    const bgImg = document.querySelector("img[aria-hidden='true']") as HTMLImageElement;
+    expect(bgImg).toBeTruthy();
+    expect(bgImg.src).toContain("/uploads/originals/photo1.jpg");
+    expect(bgImg.className).toContain("blur-");
   });
 
   it("navigation wraps forward and backward at boundaries", async () => {

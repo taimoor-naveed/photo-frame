@@ -650,3 +650,76 @@ def test_delete_during_processing_no_orphaned_files(client):
     assert len(display_files) == 0, (
         f"Orphaned display files after delete-during-processing: {[f.name for f in display_files]}"
     )
+
+
+# ─── Blur Filename Pipeline Tests ────────────────────────────
+
+
+def test_upload_photo_includes_blur_filename(client, sample_jpeg):
+    """Uploaded photo response should include blur_filename."""
+    response = client.post(
+        "/api/media",
+        files=[("files", ("photo.jpg", sample_jpeg, "image/jpeg"))],
+    )
+    assert response.status_code == 200
+    media = response.json()[0]
+    assert media["blur_filename"] is not None
+    assert media["blur_filename"].startswith("blur_")
+
+
+def test_upload_video_includes_blur_filename(client, sample_video):
+    """Uploaded video response should include blur_filename."""
+    response = client.post(
+        "/api/media",
+        files=[("files", ("clip.mp4", sample_video, "video/mp4"))],
+    )
+    assert response.status_code == 200
+    media = response.json()[0]
+    assert media["blur_filename"] is not None
+    assert media["blur_filename"].startswith("blur_")
+
+
+def test_delete_cleans_up_blur_file(client, sample_jpeg):
+    """Deleting media should remove the blur file from disk."""
+    import app.config as cfg
+
+    response = client.post(
+        "/api/media",
+        files=[("files", ("photo.jpg", sample_jpeg, "image/jpeg"))],
+    )
+    media = response.json()[0]
+    blur_filename = media["blur_filename"]
+    assert blur_filename is not None
+    assert (cfg.BLUR_DIR / blur_filename).exists()
+
+    client.delete(f"/api/media/{media['id']}")
+    assert not (cfg.BLUR_DIR / blur_filename).exists()
+
+
+def test_bulk_delete_cleans_up_blur_file(client, sample_jpeg):
+    """Bulk delete should remove the blur file from disk."""
+    import app.config as cfg
+
+    response = client.post(
+        "/api/media",
+        files=[("files", ("photo.jpg", sample_jpeg, "image/jpeg"))],
+    )
+    media = response.json()[0]
+    blur_filename = media["blur_filename"]
+    assert blur_filename is not None
+    assert (cfg.BLUR_DIR / blur_filename).exists()
+
+    client.request("DELETE", "/api/media/bulk", json={"ids": [media["id"]]})
+    assert not (cfg.BLUR_DIR / blur_filename).exists()
+
+
+def test_serve_blur_file(client, sample_jpeg):
+    """GET /uploads/blur/{filename} should serve the blur file."""
+    response = client.post(
+        "/api/media",
+        files=[("files", ("photo.jpg", sample_jpeg, "image/jpeg"))],
+    )
+    blur_filename = response.json()[0]["blur_filename"]
+
+    resp = client.get(f"/uploads/blur/{blur_filename}")
+    assert resp.status_code == 200

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, displayUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
+import { api, blurUrl, displayUrl, thumbnailUrl, type Media, type Settings } from "../api/client";
 import { useWebSocket, type WsEvent } from "../hooks/useWebSocket";
 import SlideshowOverlay from "../components/SlideshowOverlay";
 
@@ -28,6 +28,7 @@ export default function SlideshowPage() {
   const waitingForVideo = useRef(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const didLongPress = useRef(false);
+  const preloadVideoRef = useRef<HTMLVideoElement | null>(null);
 
   // ─── Data fetching ───────────────────────────────────────────
 
@@ -329,16 +330,40 @@ export default function SlideshowPage() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [goNext, goPrev]);
 
-  // ─── Preload next image ──────────────────────────────────────
+  // ─── Preload next media ───────────────────────────────────
 
   useEffect(() => {
     if (!playlist.length) return;
     const nextIdx = (currentIndex + 1) % playlist.length;
     const nextMedia = playlist[nextIdx];
+
     if (nextMedia?.media_type === "photo") {
       const img = new Image();
       img.src = displayUrl(nextMedia);
+      const blur = blurUrl(nextMedia);
+      if (blur) {
+        const blurImg = new Image();
+        blurImg.src = blur;
+      }
+    } else if (nextMedia?.media_type === "video") {
+      const video = document.createElement("video");
+      video.preload = "auto";
+      video.muted = true;
+      video.src = displayUrl(nextMedia);
+      preloadVideoRef.current = video;
+      const blur = blurUrl(nextMedia);
+      if (blur) {
+        const blurImg = new Image();
+        blurImg.src = blur;
+      }
     }
+
+    return () => {
+      if (preloadVideoRef.current) {
+        preloadVideoRef.current.src = "";
+        preloadVideoRef.current = null;
+      }
+    };
   }, [currentIndex, playlist]);
 
   // ─── Render ──────────────────────────────────────────────────
@@ -465,18 +490,18 @@ interface SlideProps {
 
 const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
   const src = displayUrl(media);
+  const blur = blurUrl(media);
+
+  // Blur background: use pre-rendered image if available, fall back to CSS blur
+  const bgSrc = media.media_type === "video" ? (blur ?? thumbnailUrl(media)) : (blur ?? src);
+  const bgClass = blur
+    ? "absolute inset-0 w-full h-full object-cover brightness-[0.7]"
+    : "absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]";
 
   if (media.media_type === "video") {
     return (
       <>
-        {/* Blur background — use thumbnail image instead of second <video> to halve resource usage */}
-        <img
-          src={thumbnailUrl(media)}
-          className="absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]"
-          alt=""
-          aria-hidden="true"
-        />
-        {/* Foreground video */}
+        <img src={bgSrc} className={bgClass} alt="" aria-hidden="true" />
         <video
           ref={videoRef}
           src={src}
@@ -493,14 +518,7 @@ const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlidePr
 
   return (
     <>
-      {/* Blur background */}
-      <img
-        src={src}
-        className="absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]"
-        alt=""
-        aria-hidden="true"
-      />
-      {/* Foreground image */}
+      <img src={bgSrc} className={bgClass} alt="" aria-hidden="true" />
       <img
         src={src}
         data-media-id={media.id}
