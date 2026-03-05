@@ -8,10 +8,10 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 137 | All passing |
-| Frontend (vitest) | 119 | All passing |
+| Backend (pytest) | 142 | All passing |
+| Frontend (vitest) | 123 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~456** | **Green** |
+| **Total** | **~465** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
@@ -27,12 +27,12 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 - **Smart transcoding**: only non-browser codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
 - **Progress tracking**: ffmpeg `-progress pipe:1` parsed in real-time, broadcast via WebSocket
 - **Duplicate detection**: SHA-256 content hash, returns existing item if duplicate
-- **WebSocket**: real-time events for media_added, media_deleted, media_processing_complete, media_processing_progress, settings_changed
+- **WebSocket**: real-time events for media_added, media_deleted, media_processing_complete, media_processing_progress, settings_changed, slideshow_jump
 - **File serving**: originals, thumbnails, transcoded videos via FileResponse
 
 ### Frontend
 - **Gallery**: responsive grid, click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state, multi-select bulk deletion (long-press to select)
-- **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), delete with confirmation, keyboard/backdrop dismiss
+- **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), show-in-slideshow (cross-device jump via WS), download, delete with confirmation, keyboard/backdrop dismiss
 - **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
 - **Settings**: interval slider (3-60s), transition type segmented control, instant save
 - **Slideshow**: fullscreen with blur background effect, crossfade/slide/none transitions, auto-advance timer
@@ -60,6 +60,15 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 ---
 
 ## Recent Changes
+
+### Jump to Slideshow (2026-03-05)
+
+Cross-device "Show in slideshow" feature. From any device's gallery modal, press the play-circle button to jump all connected slideshows to that media item.
+
+- **Backend**: `POST /api/media/slideshow/jump` — validates media exists, broadcasts `slideshow_jump` WS event. Pydantic `SlideshowJumpRequest` with `media_id: Field(ge=1, le=2**63-1)`.
+- **Frontend**: `api.slideshow.jump()` client function, `"slideshow_jump"` WS event type. SlideshowPage handles event via ref pattern (`playlistRef`, `currentIndexRef`, `goToSlideRef`) — finds media in playlist and calls `goToSlide()` for a normal transition with animation.
+- **Modal button**: Play-circle icon in MediaDetailModal header, with loading/error state and error banner on failure.
+- **Tests**: 5 backend integration tests (valid, 404, 422 edge cases), 4 frontend unit tests (renders, API call, error display, error clear on media change).
 
 ### Slideshow Performance Optimization (2026-03-05)
 
@@ -165,11 +174,6 @@ Slideshow now serves display-optimized media (1920px max) instead of full origin
 - **Redeploy process**: Create tarball on dev machine (no git on home-pc), SCP to `home@home-pc`, extract over `C:\Users\Home\photo-frame`, run `docker compose -f docker-compose.prod.yml up --build -d`, then reboot Pi
 
 ---
-
-## Next Up
-
-### 1. Create deploy playbook for fresh RPi
-Write an Ansible playbook from scratch to provision a fresh Raspberry Pi 4. Should install Docker, copy project files, build and start containers, health check, and set up Chromium kiosk mode for slideshow auto-launch. Rewrite the `deploy/` directory after environment consolidation is done.
 
 ---
 
