@@ -41,6 +41,10 @@ class BulkDeleteResponse(BaseModel):
     not_found: list[int]
 
 
+class SlideshowJumpRequest(BaseModel):
+    media_id: Annotated[int, Field(ge=1, le=2**63 - 1)]
+
+
 class SettingsOut(BaseModel):
     slideshow_interval: int
     transition_type: str
