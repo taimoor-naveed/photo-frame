@@ -7,6 +7,8 @@ from app import config
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
+_CACHE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
+
 
 def _serve_file(directory: Path, filename: str) -> FileResponse:
     if "\x00" in filename:
@@ -19,7 +21,7 @@ def _serve_file(directory: Path, filename: str) -> FileResponse:
         raise HTTPException(403, "Access denied")
     if not path.exists() or not path.is_file():
         raise HTTPException(404, "File not found")
-    return FileResponse(path)
+    return FileResponse(path, headers=_CACHE_HEADERS)
 
 
 @router.get("/originals/{filename}")
@@ -40,3 +42,8 @@ def serve_transcoded(filename: str):
 @router.get("/display/{filename}")
 def serve_display(filename: str):
     return _serve_file(config.DISPLAY_DIR, filename)
+
+
+@router.get("/blur/{filename}")
+def serve_blur(filename: str):
+    return _serve_file(config.BLUR_DIR, filename)
