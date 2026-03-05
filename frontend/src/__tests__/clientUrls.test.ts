@@ -1,4 +1,4 @@
-import { originalUrl, displayUrl, thumbnailUrl } from "../api/client";
+import { originalUrl, displayUrl, thumbnailUrl, blurUrl } from "../api/client";
 import type { Media } from "../api/client";
 
 function makeMedia(overrides: Partial<Media> = {}): Media {
@@ -15,6 +15,7 @@ function makeMedia(overrides: Partial<Media> = {}): Media {
     thumb_filename: "thumb_photo1.jpg",
     transcoded_filename: null,
     display_filename: null,
+    blur_filename: null,
     processing_status: "ready",
     content_hash: "hash1",
     uploaded_at: "2026-01-01T00:00:00",
@@ -117,5 +118,17 @@ describe("thumbnailUrl", () => {
   it("returns thumbnails path", () => {
     const media = makeMedia();
     expect(thumbnailUrl(media)).toBe("/uploads/thumbnails/thumb_photo1.jpg");
+  });
+});
+
+describe("blurUrl", () => {
+  it("returns blur path when blur_filename is set", () => {
+    const media = makeMedia({ blur_filename: "blur_abc.jpg" });
+    expect(blurUrl(media)).toBe("/uploads/blur/blur_abc.jpg");
+  });
+
+  it("returns null when blur_filename is null", () => {
+    const media = makeMedia({ blur_filename: null });
+    expect(blurUrl(media)).toBeNull();
   });
 });

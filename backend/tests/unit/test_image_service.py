@@ -287,3 +287,72 @@ def test_process_image_1921_generates_display(tmp_dirs):
     assert result["display_filename"] is not None
     display_img = Image.open(tmp_dirs["display"] / result["display_filename"])
     assert max(display_img.size) <= 1920
+
+
+# ─── Blur Background Generation ──────────────────────────────
+
+
+def test_process_image_generates_blur(tmp_dirs, sample_jpeg):
+    """Every photo should get a pre-rendered blur background."""
+    result = process_image(
+        sample_jpeg, "photo.jpg",
+        originals_dir=tmp_dirs["originals"],
+        thumbnails_dir=tmp_dirs["thumbnails"],
+        display_dir=tmp_dirs["display"],
+        blur_dir=tmp_dirs["blur"],
+    )
+
+    assert result["blur_filename"] is not None
+    assert result["blur_filename"].startswith("blur_")
+    assert result["blur_filename"].endswith(".jpg")
+    blur_path = tmp_dirs["blur"] / result["blur_filename"]
+    assert blur_path.exists()
+
+
+def test_process_image_blur_is_tiny(tmp_dirs, sample_jpeg):
+    """Blur image should be ~64px max dimension."""
+    result = process_image(
+        sample_jpeg, "photo.jpg",
+        originals_dir=tmp_dirs["originals"],
+        thumbnails_dir=tmp_dirs["thumbnails"],
+        display_dir=tmp_dirs["display"],
+        blur_dir=tmp_dirs["blur"],
+    )
+
+    blur_path = tmp_dirs["blur"] / result["blur_filename"]
+    blur_img = Image.open(blur_path)
+    assert max(blur_img.size) <= 64
+
+
+def test_process_image_blur_is_valid_jpeg(tmp_dirs, sample_jpeg):
+    """Blur image should be a valid small JPEG."""
+    result = process_image(
+        sample_jpeg, "photo.jpg",
+        originals_dir=tmp_dirs["originals"],
+        thumbnails_dir=tmp_dirs["thumbnails"],
+        display_dir=tmp_dirs["display"],
+        blur_dir=tmp_dirs["blur"],
+    )
+
+    blur_path = tmp_dirs["blur"] / result["blur_filename"]
+    blur_img = Image.open(blur_path)
+    assert blur_img.format == "JPEG"
+    assert blur_path.stat().st_size < 5000
+
+
+def test_process_image_blur_cleanup_on_failure(tmp_dirs):
+    """If processing fails, no orphaned blur files should remain."""
+    corrupt_bytes = b"not a real image at all"
+    try:
+        process_image(
+            corrupt_bytes, "corrupt.jpg",
+            originals_dir=tmp_dirs["originals"],
+            thumbnails_dir=tmp_dirs["thumbnails"],
+            display_dir=tmp_dirs["display"],
+            blur_dir=tmp_dirs["blur"],
+        )
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+    assert list(tmp_dirs["blur"].iterdir()) == []

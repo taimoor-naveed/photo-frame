@@ -15,6 +15,7 @@ const mockPhoto: Media = {
   thumb_filename: "thumb_abc.jpg",
   transcoded_filename: null,
   display_filename: null,
+  blur_filename: null,
   processing_status: "ready",
   content_hash: "abc123",
   uploaded_at: "2026-01-15T14:30:00",

@@ -21,6 +21,7 @@ class Media(Base):
     thumb_filename: Mapped[str] = mapped_column(String, nullable=False)
     transcoded_filename: Mapped[str | None] = mapped_column(String, nullable=True)
     display_filename: Mapped[str | None] = mapped_column(String, nullable=True)
+    blur_filename: Mapped[str | None] = mapped_column(String, nullable=True)
     processing_status: Mapped[str] = mapped_column(
         String, nullable=False, default="ready"
     )  # "processing" | "ready" | "error"
