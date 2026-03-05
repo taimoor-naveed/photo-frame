@@ -9,6 +9,7 @@
 | `POST`   | `/api/media`                      | Upload photos and/or videos           |
 | `GET`    | `/api/media/{id}`                 | Get media metadata                    |
 | `DELETE` | `/api/media/bulk`                 | Bulk delete media by IDs              |
+| `POST`   | `/api/media/slideshow/jump`       | Jump slideshow to specific media item |
 | `DELETE` | `/api/media/{id}`                 | Delete media + all associated files   |
 | `GET`    | `/uploads/originals/{filename}`   | Serve full-size image/video           |
 | `GET`    | `/uploads/thumbnails/{filename}`  | Serve thumbnail                       |
@@ -28,6 +29,7 @@
 - `media_processing_progress` — payload: `{"id": <media_id>, "progress": 0-100}`
 - `media_processing_complete` — payload: full media object (with `processing_status: "ready"`)
 - `media_processing_error` — payload: `{"id": <media_id>, "error": "<message>"}`
+- `slideshow_jump` — payload: `{"id": <media_id>}` (jump all slideshows to this media)
 - `settings_changed` — payload: full settings object
 
 ### Health
@@ -50,6 +52,7 @@ media:
   transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
   processing_status TEXT NOT NULL DEFAULT 'ready'  -- 'processing' | 'ready' | 'error'
   display_filename TEXT               -- display-optimized file (1920px max), NULL if not needed
+  blur_filename TEXT                  -- pre-rendered blur background (~64px JPEG), NULL if not generated
   content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection
   uploaded_at DATETIME NOT NULL       -- UTC
 
@@ -100,7 +103,7 @@ Clicking a thumbnail in the gallery opens a lightbox modal:
 | Element         | Details                                                    |
 |-----------------|------------------------------------------------------------|
 | Backdrop        | `bg-black/60 backdrop-blur-sm`, click to close             |
-| Header          | Filename (truncated), trash icon, close (X) button         |
+| Header          | Filename, show-in-slideshow / download / delete / close     |
 | Media area      | Full-size `<img>` or `<video autoPlay muted controls>`     |
 | Metadata bar    | W × H, file size (human-readable), duration (videos), date |
 | Delete          | Trash icon → ConfirmDialog → delete + close modal          |
@@ -110,7 +113,7 @@ Body scroll is locked while the modal is open. Escape is suppressed when the Con
 
 ## Display — Blur Background Effect
 
-Aspect ratio: 10:7 (~1.43:1). Pure CSS, no backend processing.
+Pre-rendered tiny (~64px) blurred JPEGs generated at upload time, served from `/uploads/blur/`. Falls back to CSS `blur(30px)` if blur image not available.
 
 ```
 ┌─────────────────────────────┐
