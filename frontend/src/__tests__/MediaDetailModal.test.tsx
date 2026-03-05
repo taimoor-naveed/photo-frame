@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import MediaDetailModal from "../components/MediaDetailModal";
 import type { Media } from "../api/client";
 
@@ -255,5 +255,106 @@ describe("MediaDetailModal", () => {
     // No duration-like text (Xs or Xm) should appear
     expect(screen.queryByText(/^\d+s$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^\d+m$/)).not.toBeInTheDocument();
+  });
+
+  // ─── Show in Slideshow Button ───────────────────────────
+
+  it("renders 'Show in slideshow' button", () => {
+    render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByLabelText("Show in slideshow")).toBeInTheDocument();
+  });
+
+  it("calls slideshow jump API on click", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true }),
+    } as Response);
+
+    render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Show in slideshow"));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/media/slideshow/jump",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ media_id: 1 }),
+        }),
+      );
+    });
+
+    fetchSpy.mockRestore();
+  });
+
+  it("shows error banner when slideshow jump API fails", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => "Internal Server Error",
+    } as Response);
+
+    render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Show in slideshow"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to jump slideshow/)).toBeInTheDocument();
+    });
+
+    fetchSpy.mockRestore();
+  });
+
+  it("clears jump error when media changes", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => "Internal Server Error",
+    } as Response);
+
+    const { rerender } = render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Show in slideshow"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to jump slideshow/)).toBeInTheDocument();
+    });
+
+    // Switch to different media — error should clear
+    rerender(
+      <MediaDetailModal
+        media={mockVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText(/Failed to jump slideshow/)).not.toBeInTheDocument();
+
+    fetchSpy.mockRestore();
   });
 });

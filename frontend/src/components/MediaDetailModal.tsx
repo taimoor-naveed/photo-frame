@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Media } from "../api/client";
-import { originalUrl, thumbnailUrl } from "../api/client";
+import { api, originalUrl, thumbnailUrl } from "../api/client";
 import ConfirmDialog from "./ConfirmDialog";
 
 interface MediaDetailModalProps {
@@ -41,10 +41,13 @@ export default function MediaDetailModal({
 }: MediaDetailModalProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [jumping, setJumping] = useState(false);
+  const [jumpError, setJumpError] = useState<string | null>(null);
 
   // Reset image loaded state when media changes
   useEffect(() => {
     setImageLoaded(false);
+    setJumpError(null);
   }, [media?.id]);
 
   // Body scroll lock
@@ -91,6 +94,43 @@ export default function MediaDetailModal({
               {media.original_name}
             </h2>
             <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={async () => {
+                  if (!media || jumping) return;
+                  setJumping(true);
+                  setJumpError(null);
+                  try {
+                    await api.slideshow.jump(media.id);
+                  } catch {
+                    setJumpError("Failed to jump slideshow");
+                  } finally {
+                    setJumping(false);
+                  }
+                }}
+                disabled={jumping}
+                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+                aria-label="Show in slideshow"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </button>
               <a
                 href={originalUrl(media)}
                 download={media.original_name}
@@ -153,10 +193,15 @@ export default function MediaDetailModal({
             </div>
           </div>
 
-          {/* Error banner */}
+          {/* Error banners */}
           {error && (
             <div className="px-5 py-2 bg-red-500/10 border-b border-red-500/20">
               <p className="text-sm font-medium text-red-400">Error: {error}</p>
+            </div>
+          )}
+          {jumpError && (
+            <div className="px-5 py-2 bg-red-500/10 border-b border-red-500/20">
+              <p className="text-sm font-medium text-red-400">Error: {jumpError}</p>
             </div>
           )}
 
