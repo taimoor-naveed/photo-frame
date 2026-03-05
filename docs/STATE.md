@@ -10,11 +10,10 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 |-------|-------|--------|
 | Backend (pytest) | 123 | All passing |
 | Frontend (vitest) | 115 | All passing |
-| E2E (playwright) | 195 passed, 2 flaky (3 skipped) | Passing |
-| **Total** | **~411** | **Green** |
+| E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
+| **Total** | **~438** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
-E2E flaky: 2 video tests (H.264 doesn't play in headless Chromium — known issue).
 
 ---
 
