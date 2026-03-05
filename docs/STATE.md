@@ -8,10 +8,10 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 123 | All passing |
-| Frontend (vitest) | 115 | All passing |
+| Backend (pytest) | 137 | All passing |
+| Frontend (vitest) | 119 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~438** | **Green** |
+| **Total** | **~456** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
@@ -60,6 +60,17 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 ---
 
 ## Recent Changes
+
+### Slideshow Performance Optimization (2026-03-05)
+
+Four universal improvements to eliminate slideshow sluggishness on all clients:
+
+1. **Pre-rendered blur backgrounds**: Tiny (~64px) pre-blurred JPEGs generated at upload, replacing real-time CSS `blur(30px)`. Eliminates GPU compositing overhead on every slide transition. New `blur_filename` field on Media model, `/uploads/blur/` route, startup backfill for existing media.
+2. **H.264 Main profile + level 4.0**: All ffmpeg encode commands now use `-profile:v main -level 4.0` instead of defaulting to High profile. Main profile is universally supported and hardware-decoded efficiently by RPi VideoCore VI.
+3. **Cache headers**: All `/uploads/*` routes now return `Cache-Control: public, max-age=31536000, immutable`. Filenames contain UUIDs so this is safe. Second loop through playlist loads from browser disk cache.
+4. **Video preloading**: Next video is preloaded via hidden `<video preload="auto">` element alongside existing photo preloading. Blur images for the next slide are also preloaded. Discarded on manual skip.
+
+Tests: 14 new backend tests, 4 new frontend tests.
 
 ### HEIC Photo Support (2026-03-04)
 
