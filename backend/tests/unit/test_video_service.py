@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 
@@ -247,3 +248,57 @@ def test_generate_blur_from_thumbnail_dimensions(video_file, tmp_dirs):
     from PIL import Image
     blur_img = Image.open(blur_path)
     assert max(blur_img.size) <= 64
+
+
+# ─── H.264 Profile Tests ────────────────────────────────────
+
+
+def test_transcode_uses_main_profile(tmp_dirs, tmp_path):
+    """Transcoded video should use H.264 Main profile for hardware decode compatibility."""
+    src = tmp_path / "src_mpeg4.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=red:s=320x240:d=1",
+            "-c:v", "mpeg4", "-t", "1",
+            str(src),
+        ],
+        capture_output=True,
+        check=True,
+    )
+
+    from app.services.video import transcode_to_h264
+    output = transcode_to_h264(
+        src, "transcoded_test.mp4",
+        transcoded_dir=tmp_dirs["transcoded"],
+    )
+
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", str(output),
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    streams = json.loads(result.stdout)
+    video = next(s for s in streams["streams"] if s["codec_type"] == "video")
+    assert video["profile"] == "Main"
+
+
+def test_scale_video_uses_main_profile(tmp_dirs, large_video_file):
+    """Scaled video should use H.264 Main profile."""
+    scale_video_for_display(
+        large_video_file, "display_profile.mp4",
+        display_dir=tmp_dirs["display"],
+    )
+
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_streams", str(tmp_dirs["display"] / "display_profile.mp4"),
+        ],
+        capture_output=True, text=True, check=True,
+    )
+    streams = json.loads(result.stdout)
+    video = next(s for s in streams["streams"] if s["codec_type"] == "video")
+    assert video["profile"] == "Main"
