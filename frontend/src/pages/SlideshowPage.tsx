@@ -159,6 +159,15 @@ export default function SlideshowPage() {
   const goNextRef = useRef(goNext);
   useEffect(() => { goNextRef.current = goNext; }, [goNext]);
 
+  const goToSlideRef = useRef(goToSlide);
+  useEffect(() => { goToSlideRef.current = goToSlide; }, [goToSlide]);
+
+  const playlistRef = useRef(playlist);
+  useEffect(() => { playlistRef.current = playlist; }, [playlist]);
+
+  const currentIndexRef = useRef(currentIndex);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+
   const handleVideoEnded = useCallback(() => {
     if (waitingForVideo.current) {
       goNextRef.current();
@@ -275,6 +284,12 @@ export default function SlideshowPage() {
       } else if (event.type === "settings_changed") {
         setSettings(event.payload as unknown as Settings);
         resetHideTimer();
+      } else if (event.type === "slideshow_jump") {
+        const { id } = event.payload as { id: number };
+        const idx = playlistRef.current.findIndex((m) => m.id === id);
+        if (idx !== -1 && idx !== currentIndexRef.current) {
+          goToSlideRef.current(idx);
+        }
       }
     },
     [resetHideTimer],
