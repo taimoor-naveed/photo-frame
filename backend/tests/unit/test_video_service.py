@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from app.services.video import (
+    generate_blur_from_thumbnail,
     generate_video_thumbnail,
     get_video_metadata,
     needs_transcode,
@@ -209,3 +210,40 @@ def test_scale_video_for_display_invalid_input(tmp_dirs, tmp_path):
             bad_file, "display_fail.mp4",
             display_dir=tmp_dirs["display"],
         )
+
+
+# ─── Blur Background from Thumbnail ─────────────────────────
+
+
+def test_generate_blur_from_thumbnail(video_file, tmp_dirs):
+    """Generate blur background from video thumbnail."""
+    thumb_path = generate_video_thumbnail(
+        video_file, "thumb_test.jpg",
+        thumbnails_dir=tmp_dirs["thumbnails"],
+    )
+
+    blur_path = generate_blur_from_thumbnail(
+        thumb_path, "blur_test.jpg",
+        blur_dir=tmp_dirs["blur"],
+    )
+
+    assert blur_path.exists()
+    assert blur_path.stat().st_size > 0
+    assert blur_path.stat().st_size < 5000
+
+
+def test_generate_blur_from_thumbnail_dimensions(video_file, tmp_dirs):
+    """Blur image max dimension should be <= 64."""
+    thumb_path = generate_video_thumbnail(
+        video_file, "thumb_dim.jpg",
+        thumbnails_dir=tmp_dirs["thumbnails"],
+    )
+
+    blur_path = generate_blur_from_thumbnail(
+        thumb_path, "blur_dim.jpg",
+        blur_dir=tmp_dirs["blur"],
+    )
+
+    from PIL import Image
+    blur_img = Image.open(blur_path)
+    assert max(blur_img.size) <= 64
