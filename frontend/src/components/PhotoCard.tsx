@@ -51,14 +51,13 @@ export default function PhotoCard({
       didLongPress.current = false;
       return;
     }
-    if (isProcessing || isError) return;
 
     if (selectionMode) {
       onToggleSelect?.(media);
     } else {
       onClick?.(media);
     }
-  }, [isProcessing, isError, selectionMode, media, onClick, onToggleSelect]);
+  }, [selectionMode, media, onClick, onToggleSelect]);
 
   return (
     <div
