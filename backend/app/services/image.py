@@ -88,7 +88,7 @@ def process_image(
         blur_filename = f"blur_{uuid.uuid4()}.jpg"
         blur_img = img.copy()
         blur_img.thumbnail((config.BLUR_SIZE, config.BLUR_SIZE), Image.LANCZOS)
-        blur_img = blur_img.filter(ImageFilter.GaussianBlur(radius=10))
+        blur_img = blur_img.filter(ImageFilter.GaussianBlur(radius=30))
         blur_path = blur_dir / blur_filename
         blur_img.save(blur_path, "JPEG", quality=60)
         created_files.append(blur_path)

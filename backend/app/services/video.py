@@ -90,7 +90,7 @@ def generate_blur_from_thumbnail(
 
     img = Image.open(thumb_path)
     img.thumbnail((config.BLUR_SIZE, config.BLUR_SIZE), Image.LANCZOS)
-    img = img.filter(ImageFilter.GaussianBlur(radius=10))
+    img = img.filter(ImageFilter.GaussianBlur(radius=30))
     blur_path = blur_dir / blur_filename
     img.save(blur_path, "JPEG", quality=60)
     return blur_path
