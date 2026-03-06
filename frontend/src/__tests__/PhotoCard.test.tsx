@@ -114,16 +114,28 @@ describe("PhotoCard", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("does not start long-press on processing items", () => {
+  it("fires onLongPress on processing items", () => {
     const onLongPress = vi.fn();
     const processing = { ...mockMedia, processing_status: "processing" as const };
     render(<PhotoCard media={processing} onLongPress={onLongPress} />);
     const card = screen.getByTestId("photo-card");
 
     fireEvent.pointerDown(card);
-    act(() => { vi.advanceTimersByTime(600); });
+    act(() => { vi.advanceTimersByTime(500); });
 
-    expect(onLongPress).not.toHaveBeenCalled();
+    expect(onLongPress).toHaveBeenCalledWith(processing);
+  });
+
+  it("fires onLongPress on error items", () => {
+    const onLongPress = vi.fn();
+    const errorMedia = { ...mockMedia, processing_status: "error" as const };
+    render(<PhotoCard media={errorMedia} onLongPress={onLongPress} />);
+    const card = screen.getByTestId("photo-card");
+
+    fireEvent.pointerDown(card);
+    act(() => { vi.advanceTimersByTime(500); });
+
+    expect(onLongPress).toHaveBeenCalledWith(errorMedia);
   });
 
   // ─── Selection mode visual tests ─────────────────────────
