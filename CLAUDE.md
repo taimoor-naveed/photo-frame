@@ -105,6 +105,9 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **WebSocket event format**: Backend sends `{"type": ..., "payload": ...}` to match frontend `WsEvent` interface. Any mismatch is silent (TypeScript `as` cast swallows it).
 - **File input clearing**: Some browsers invalidate `File` objects when `input.value = ""` — copy files to array first.
 - **StrictMode double-fetch**: React 19 StrictMode double-invokes effects, causing duplicate fetches. Use refs (e.g. `initialBuildDone`) to guard one-time operations.
+- **Scripts not in container**: `scripts/` is at repo root, not inside `backend/`. To run a script in prod: `cat script.py | ssh home@home-pc "... docker compose exec -T backend python -"` (pipe via stdin).
+- **Deploy wipes volume**: `deploy.sh` runs `docker compose down -v`, so DB + uploads are lost. Originals are backed up and re-uploaded, but generated files (thumbnails, display, blur) are regenerated from scratch.
+- **Deployment procedure**: (1) Kill Chromium on Pi (`pkill -9 chromium`), (2) run `scripts/deploy.sh`, (3) run any migration scripts on home-pc, (4) reboot Pi (`sudo reboot`) to restart slideshow.
 
 ## Lessons Learned (QA Breaker — 2026-03-02)
 
