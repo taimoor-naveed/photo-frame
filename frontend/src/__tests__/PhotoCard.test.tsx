@@ -65,12 +65,34 @@ describe("PhotoCard", () => {
     expect(onClick).toHaveBeenCalledWith(mockMedia);
   });
 
-  it("does not call onClick when processing", () => {
+  it("calls onClick when processing (opens modal)", () => {
     const onClick = vi.fn();
     const processing = { ...mockMedia, processing_status: "processing" as const };
     render(<PhotoCard media={processing} onClick={onClick} />);
     fireEvent.click(screen.getByTestId("photo-card"));
-    expect(onClick).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledWith(processing);
+  });
+
+  it("calls onClick when error state", () => {
+    const onClick = vi.fn();
+    const errorMedia = { ...mockMedia, processing_status: "error" as const };
+    render(<PhotoCard media={errorMedia} onClick={onClick} />);
+    fireEvent.click(screen.getByTestId("photo-card"));
+    expect(onClick).toHaveBeenCalledWith(errorMedia);
+  });
+
+  it("click in selection mode toggles processing items", () => {
+    const onToggleSelect = vi.fn();
+    const processing = { ...mockMedia, processing_status: "processing" as const };
+    render(
+      <PhotoCard
+        media={processing}
+        selectionMode={true}
+        onToggleSelect={onToggleSelect}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("photo-card"));
+    expect(onToggleSelect).toHaveBeenCalledWith(processing);
   });
 
   // ─── Long-press tests ────────────────────────────────────
