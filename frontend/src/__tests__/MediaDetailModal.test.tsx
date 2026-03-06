@@ -491,6 +491,70 @@ describe("MediaDetailModal", () => {
     fetchSpy.mockRestore();
   });
 
+  it("updates progress when media prop changes (live WS updates)", () => {
+    const { rerender } = render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText("42%")).toBeInTheDocument();
+
+    // Simulate WS update with new progress
+    const updatedMedia: Media = { ...mockProcessingVideo, processing_progress: 78 };
+    rerender(
+      <MediaDetailModal
+        media={updatedMedia}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByText("78%")).toBeInTheDocument();
+    expect(screen.queryByText("42%")).not.toBeInTheDocument();
+  });
+
+  it("jump button enables when media transitions from processing to ready", () => {
+    const { rerender } = render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByLabelText("Show in slideshow")).toBeDisabled();
+
+    // Simulate processing complete
+    const readyMedia: Media = {
+      ...mockProcessingVideo,
+      processing_status: "ready",
+      processing_progress: 100,
+      transcoded_filename: "transcoded_clip.webm",
+    };
+    rerender(
+      <MediaDetailModal
+        media={readyMedia}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(screen.getByLabelText("Show in slideshow")).not.toBeDisabled();
+    // Should now show the video player instead of processing overlay
+    expect(document.querySelector("video")).toBeTruthy();
+  });
+
+  it("jump button has no visible focus ring on click", () => {
+    render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const jumpBtn = screen.getByLabelText("Show in slideshow");
+    expect(jumpBtn.className).toContain("focus:outline-none");
+  });
+
   it("shows processing overlay for processing photo", () => {
     const processingPhoto: Media = {
       ...mockPhoto,

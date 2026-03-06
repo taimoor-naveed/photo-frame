@@ -118,7 +118,7 @@ export default function MediaDetailModal({
                 }}
                 disabled={jumping || !isReady}
                 title={jumpTitle}
-                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
                 aria-label="Show in slideshow"
               >
                 <svg
