@@ -176,7 +176,7 @@ def test_process_image_heic_rgba_converts_to_rgb(tmp_dirs, sample_heic_rgba):
 
 
 def test_process_image_small_no_display_file(tmp_dirs, sample_jpeg):
-    """Image ≤ 1920px should NOT generate a display file."""
+    """Image within 1024x600 bounding box should NOT generate a display file."""
     result = process_image(
         sample_jpeg, "photo.jpg",
         originals_dir=tmp_dirs["originals"],
@@ -189,7 +189,7 @@ def test_process_image_small_no_display_file(tmp_dirs, sample_jpeg):
 
 
 def test_process_image_large_generates_display_file(tmp_dirs, sample_jpeg_large):
-    """Image > 1920px should generate a display-optimized JPEG in display_dir."""
+    """Image exceeding 1024x600 should generate a display-optimized JPEG in display_dir."""
     result = process_image(
         sample_jpeg_large, "big_photo.jpg",
         originals_dir=tmp_dirs["originals"],
@@ -206,7 +206,7 @@ def test_process_image_large_generates_display_file(tmp_dirs, sample_jpeg_large)
 
 
 def test_process_image_display_dimensions_capped(tmp_dirs, sample_jpeg_large):
-    """Display file longest edge must be ≤ 1920."""
+    """Display file must fit within 1024x600 bounding box."""
     result = process_image(
         sample_jpeg_large, "big_photo.jpg",
         originals_dir=tmp_dirs["originals"],
@@ -216,9 +216,10 @@ def test_process_image_display_dimensions_capped(tmp_dirs, sample_jpeg_large):
 
     display_path = tmp_dirs["display"] / result["display_filename"]
     display_img = Image.open(display_path)
-    assert max(display_img.size) <= 1920
-    # Should maintain aspect ratio — 2400x1800 → 1920x1440
-    assert display_img.size == (1920, 1440)
+    assert display_img.size[0] <= 1024
+    assert display_img.size[1] <= 600
+    # Should maintain aspect ratio — 2400x1800 → 800x600
+    assert display_img.size == (800, 600)
 
 
 def test_process_image_display_is_valid_jpeg(tmp_dirs, sample_jpeg_large):
@@ -254,14 +255,14 @@ def test_process_image_display_cleanup_on_failure(tmp_dirs):
     assert list(tmp_dirs["thumbnails"].iterdir()) == []
 
 
-def test_process_image_exactly_1920_no_display(tmp_dirs):
-    """Image exactly 1920px wide should NOT generate a display file."""
-    img = Image.new("RGB", (1920, 1080), color="cyan")
+def test_process_image_exactly_at_limit_no_display(tmp_dirs):
+    """Image exactly 1024x600 should NOT generate a display file."""
+    img = Image.new("RGB", (1024, 600), color="cyan")
     buf = io.BytesIO()
     img.save(buf, "JPEG")
 
     result = process_image(
-        buf.getvalue(), "exact1920.jpg",
+        buf.getvalue(), "exact_limit.jpg",
         originals_dir=tmp_dirs["originals"],
         thumbnails_dir=tmp_dirs["thumbnails"],
         display_dir=tmp_dirs["display"],
@@ -271,14 +272,14 @@ def test_process_image_exactly_1920_no_display(tmp_dirs):
     assert list(tmp_dirs["display"].iterdir()) == []
 
 
-def test_process_image_1921_generates_display(tmp_dirs):
-    """Image 1921px wide (just over threshold) should generate a display file."""
-    img = Image.new("RGB", (1921, 1080), color="yellow")
+def test_process_image_1025_wide_generates_display(tmp_dirs):
+    """Image 1025px wide (just over width threshold) should generate a display file."""
+    img = Image.new("RGB", (1025, 500), color="yellow")
     buf = io.BytesIO()
     img.save(buf, "JPEG")
 
     result = process_image(
-        buf.getvalue(), "just_over.jpg",
+        buf.getvalue(), "just_over_w.jpg",
         originals_dir=tmp_dirs["originals"],
         thumbnails_dir=tmp_dirs["thumbnails"],
         display_dir=tmp_dirs["display"],
@@ -286,7 +287,27 @@ def test_process_image_1921_generates_display(tmp_dirs):
 
     assert result["display_filename"] is not None
     display_img = Image.open(tmp_dirs["display"] / result["display_filename"])
-    assert max(display_img.size) <= 1920
+    assert display_img.size[0] <= 1024
+    assert display_img.size[1] <= 600
+
+
+def test_process_image_601_tall_generates_display(tmp_dirs):
+    """Image 601px tall (just over height threshold) should generate a display file."""
+    img = Image.new("RGB", (800, 601), color="orange")
+    buf = io.BytesIO()
+    img.save(buf, "JPEG")
+
+    result = process_image(
+        buf.getvalue(), "just_over_h.jpg",
+        originals_dir=tmp_dirs["originals"],
+        thumbnails_dir=tmp_dirs["thumbnails"],
+        display_dir=tmp_dirs["display"],
+    )
+
+    assert result["display_filename"] is not None
+    display_img = Image.open(tmp_dirs["display"] / result["display_filename"])
+    assert display_img.size[0] <= 1024
+    assert display_img.size[1] <= 600
 
 
 # ─── Blur Background Generation ──────────────────────────────

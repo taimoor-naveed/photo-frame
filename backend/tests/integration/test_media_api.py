@@ -373,7 +373,7 @@ def test_bulk_delete_duplicate_ids(client):
 
 
 def _make_large_jpeg(width: int = 2400, height: int = 1800, color: str = "purple") -> bytes:
-    """Generate a JPEG larger than DISPLAY_MAX_SIZE (1920)."""
+    """Generate a JPEG larger than the display bounding box (1024x600)."""
     img = Image.new("RGB", (width, height), color=color)
     buf = io.BytesIO()
     img.save(buf, "JPEG")
@@ -381,7 +381,7 @@ def _make_large_jpeg(width: int = 2400, height: int = 1800, color: str = "purple
 
 
 def test_upload_large_photo_has_display_filename(client):
-    """Uploading a photo > 1920px should set display_filename in the response."""
+    """Uploading a photo exceeding 1024x600 should set display_filename in the response."""
     data = _make_large_jpeg()
     r = client.post("/api/media", files=[("files", ("big.jpg", io.BytesIO(data), "image/jpeg"))])
     assert r.status_code == 200
@@ -391,7 +391,7 @@ def test_upload_large_photo_has_display_filename(client):
 
 
 def test_upload_small_photo_no_display_filename(client, sample_jpeg):
-    """Uploading a photo ≤ 1920px should have display_filename = null."""
+    """Uploading a photo within 1024x600 should have display_filename = null."""
     r = client.post("/api/media", files=[("files", ("small.jpg", io.BytesIO(sample_jpeg), "image/jpeg"))])
     assert r.status_code == 200
     media = r.json()[0]
@@ -511,7 +511,7 @@ def _wait_for_ready(client, media_id: int, timeout: float = 30.0) -> dict:
 
 
 def test_upload_large_video_starts_processing(client, sample_video_large):
-    """Uploading a video > 1920px should return processing_status='processing'."""
+    """Uploading a video exceeding 1024x600 should return processing_status='processing'."""
     r = client.post("/api/media", files=[("files", ("big.mp4", io.BytesIO(sample_video_large), "video/mp4"))])
     assert r.status_code == 200
     media = r.json()[0]
@@ -543,7 +543,7 @@ def test_upload_large_video_display_file_on_disk(client, sample_video_large):
 
 
 def test_upload_large_video_display_dimensions_capped(client, sample_video_large):
-    """Display video longest edge must be ≤ 1920px."""
+    """Display video must fit within 1024x600."""
     import app.config as cfg
     from app.services.video import get_video_metadata
 
@@ -553,7 +553,8 @@ def test_upload_large_video_display_dimensions_capped(client, sample_video_large
     media = _wait_for_ready(client, media_id)
     display_path = cfg.DISPLAY_DIR / media["display_filename"]
     meta = get_video_metadata(display_path)
-    assert max(meta["width"], meta["height"]) <= 1920
+    assert meta["width"] <= 1024
+    assert meta["height"] <= 600
 
 
 def test_serve_video_display_file(client, sample_video_large):

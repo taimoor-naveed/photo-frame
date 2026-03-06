@@ -71,14 +71,13 @@ def process_image(
         thumb.save(thumb_path, "JPEG", quality=85)
         created_files.append(thumb_path)
 
-        # Generate display-optimized version if image exceeds DISPLAY_MAX_SIZE
+        # Generate display-optimized version if image exceeds display bounding box
         display_filename = None
-        max_dim = max(width, height)
-        if max_dim > config.DISPLAY_MAX_SIZE:
+        if width > config.DISPLAY_MAX_WIDTH or height > config.DISPLAY_MAX_HEIGHT:
             display_filename = f"display_{uuid.uuid4()}.jpg"
             display_img = img.copy()
             display_img.thumbnail(
-                (config.DISPLAY_MAX_SIZE, config.DISPLAY_MAX_SIZE), Image.LANCZOS
+                (config.DISPLAY_MAX_WIDTH, config.DISPLAY_MAX_HEIGHT), Image.LANCZOS
             )
             display_path = display_dir / display_filename
             display_img.save(display_path, "JPEG", quality=90)

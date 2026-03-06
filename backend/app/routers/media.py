@@ -208,7 +208,7 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
             require_transcode = needs_transcode(info["codec"])
             needs_display_scale_check = (
                 not require_transcode
-                and max(info["width"], info["height"]) > config.DISPLAY_MAX_SIZE
+                and (info["width"] > config.DISPLAY_MAX_WIDTH or info["height"] > config.DISPLAY_MAX_HEIGHT)
             )
             media = Media(
                 filename=info["filename"],

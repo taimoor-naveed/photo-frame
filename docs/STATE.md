@@ -55,7 +55,25 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 - **Combined slide state** — `{playlist, currentIndex}` in single useState to prevent flash when playlist changes
 - **Tap zones over swipe gestures** — simpler, more reliable on touch screens
 - **VP8/WebM for E2E video tests** — H.264 doesn't play in headless Chromium (Playwright Docker)
-- **Thumbnail for video blur background** — uses `<img>` instead of second `<video>` to halve resource usage
+- **CSS blur for slideshow backgrounds** — real-time CSS blur on both photos and videos (experiment branch). Backend still generates pre-rendered blur images but frontend doesn't use them.
+
+---
+
+## Experiment Branch: `experiment/smaller-display-css-blur`
+
+**Not merged to main.** Two changes being tested:
+
+### 1. Display size reduced: 1920 → 1024x600
+- `DISPLAY_MAX_SIZE = 1920` replaced with `DISPLAY_MAX_WIDTH = 1024` / `DISPLAY_MAX_HEIGHT = 600`
+- Images/videos now fit within a 1024x600 bounding box (matching RPi touchscreen resolution)
+- Affects: `config.py`, `image.py`, `video.py`, `media.py` router
+
+### 2. CSS blur instead of pre-rendered blur images
+- Slideshow now uses real-time CSS `blur(30px)` for both photos and videos
+- Photos: background `<img>` with same src as foreground, CSS blurred
+- Videos: background `<video>` element plays in sync, CSS blurred (dynamic blur that moves with the video)
+- **Backend still generates blur images** — `blur_filename` is still set on upload, `/uploads/blur/` endpoint still works. Frontend just doesn't use them. If this experiment is reverted, re-importing `blurUrl` in `SlideshowPage.tsx` and restoring the `Slide` component restores pre-rendered blur.
+- To fully remove backend blur generation later: delete blur logic from `image.py` and `video.py`, remove `blur_filename` from model/schema, remove `/uploads/blur/` route, drop `BLUR_DIR`/`BLUR_SIZE` from config.
 
 ---
 
@@ -108,7 +126,7 @@ Cross-device "Show in slideshow" feature. From any device's gallery modal, press
 
 Four universal improvements to eliminate slideshow sluggishness on all clients:
 
-1. **Pre-rendered blur backgrounds**: Pre-blurred JPEGs (320px, radius 30) generated at upload, replacing real-time CSS `blur(30px)`. Eliminates GPU compositing overhead on every slide transition. New `blur_filename` field on Media model, `/uploads/blur/` route, startup backfill for existing media.
+1. **Blur backgrounds**: Pre-blurred JPEGs (320px, radius 30) still generated at upload (`blur_filename` field, `/uploads/blur/` route). However, slideshow now uses real-time CSS `blur(30px)` instead — for videos this gives dynamic blur that moves with the content. Backend blur generation retained for potential future use.
 2. **H.264 Main profile + level 4.0**: All ffmpeg encode commands now use `-profile:v main -level 4.0` instead of defaulting to High profile. Main profile is universally supported and hardware-decoded efficiently by RPi VideoCore VI.
 3. **Cache headers**: All `/uploads/*` routes now return `Cache-Control: public, max-age=31536000, immutable`. Filenames contain UUIDs so this is safe. Second loop through playlist loads from browser disk cache.
 4. **Video preloading**: Next video is preloaded via hidden `<video preload="auto">` element alongside existing photo preloading. Blur images for the next slide are also preloaded. Discarded on manual skip.
@@ -187,12 +205,12 @@ Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slid
 
 ### Display-Optimized Media + Download Button (2026-03-04)
 
-Slideshow now serves display-optimized media (1920px max) instead of full originals, reducing bandwidth for RPi kiosk.
+Slideshow now serves display-optimized media (1024x600 bounding box) instead of full originals, reducing bandwidth for RPi kiosk.
 
-- **Backend config**: `DISPLAY_DIR` (`data/display/`), `DISPLAY_MAX_SIZE = 1920`
+- **Backend config**: `DISPLAY_DIR` (`data/display/`), `DISPLAY_MAX_WIDTH = 1024`, `DISPLAY_MAX_HEIGHT = 600`
 - **DB**: `display_filename` column on media table (nullable, idempotent migration)
-- **Image processing**: `process_image()` generates display JPEG (Q90, LANCZOS) when `max(w,h) > 1920`
-- **Video processing**: `transcode_to_h264()` now includes scale filter capping at 1920px. New `scale_video_for_display()` for browser-compatible oversized videos. Background thread pattern matches existing transcode flow.
+- **Image processing**: `process_image()` generates display JPEG (Q90, LANCZOS) when `width > 1024 or height > 600`
+- **Video processing**: `transcode_to_h264()` now includes scale filter capping at 1024x600. New `scale_video_for_display()` for browser-compatible oversized videos. Background thread pattern matches existing transcode flow.
 - **Upload router**: Photos set `display_filename` from `process_image()`. Videos: transcoded ones get `display_filename = transcoded_filename` (already scaled). Browser-compatible oversized videos get background scaling via `_scale_display_in_background()`.
 - **Delete handlers**: Clean up display files on single and bulk delete
 - **Serve display files**: `GET /uploads/display/{filename}` route
