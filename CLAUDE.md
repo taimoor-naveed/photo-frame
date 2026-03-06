@@ -120,6 +120,20 @@ Five bugs found by adversarial QA testing that the full test suite missed. Root 
 
 **Key takeaway:** A test suite with only happy-path tests gives false confidence. The five bugs above were each one curl/fetch command away from discovery, but 229 existing tests missed all of them.
 
+## Lessons Learned (Slideshow Freeze — 2026-03-06)
+
+Pi kiosk slideshow page froze completely after using the "Show in slideshow" jump feature. Page stayed visible but was entirely unresponsive — no auto-advance, no touch, no WS events received. Backend was healthy (gallery worked on phone simultaneously). Chromium process was alive but renderer was frozen.
+
+**Root cause: unconfirmed** — no browser console logs were available. Most likely Chromium renderer-level freeze (GPU issues on RPi 4 — earlier logs showed repeated GPU process crashes). The WS handler also had bugs that could accumulate stale connections.
+
+**What was fixed:**
+- Backend WS handler now catches all exceptions (not just `WebSocketDisconnect`) via `finally` block
+- `broadcast()` removes stale connections instead of silently ignoring send errors
+- `disconnect()` handles double-remove safely
+- Chromium on Pi now launches with `--remote-debugging-port=9222` so next time console logs are available at `http://localhost:9222`
+
+**If this happens again:** SSH into Pi, run `curl -s http://localhost:9222/json` to check if page is alive, then use Chrome DevTools Protocol to get console logs before killing the browser.
+
 ## Lessons Learned (QA Breaker Round 2 — 2026-03-05)
 
 Four more bugs found despite 114 passing tests. Root cause: tests didn't probe poison inputs or async race conditions.

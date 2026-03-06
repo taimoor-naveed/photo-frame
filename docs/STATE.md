@@ -61,6 +61,13 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
 ## Recent Changes
 
+### WebSocket Robustness + Kiosk Debugging (2026-03-06)
+
+Slideshow page froze on Pi after using jump feature. Root cause unconfirmed (likely Chromium renderer-level GPU issue), but backend WS had reliability bugs.
+
+- **Backend**: WS handler catches all exceptions (not just `WebSocketDisconnect`), `broadcast()` removes stale connections, `disconnect()` handles double-remove
+- **Pi kiosk**: Chromium now launches with `--remote-debugging-port=9222` for future diagnosis
+
 ### Jump to Slideshow (2026-03-05)
 
 Cross-device "Show in slideshow" feature. From any device's gallery modal, press the play-circle button to jump all connected slideshows to that media item.
@@ -170,7 +177,8 @@ Slideshow now serves display-optimized media (1920px max) instead of full origin
 - **Prod containers**: Windows PC (`home@home-pc`), runs `docker-compose.prod.yml` — nginx on port 80, backend on 8000 (internal)
 - **Slideshow kiosk**: Raspberry Pi (`pi@photoframe`), 1024x600 touchscreen display
 - **Kiosk browser**: Chromium in kiosk mode, launched via labwc autostart (`~/.config/labwc/autostart`), pointing to `http://home-pc/slideshow`
-- **Auto-start on boot**: labwc desktop session auto-launches Chromium with `--kiosk --start-fullscreen --enable-features=VaapiVideoDecoder --enable-gpu-rasterization`
+- **Auto-start on boot**: labwc desktop session auto-launches Chromium with `--kiosk --start-fullscreen --enable-features=VaapiVideoDecoder --enable-gpu-rasterization --remote-debugging-port=9222`
+- **Remote debugging**: Chromium exposes DevTools on port 9222 — `curl http://localhost:9222/json` from Pi, or `http://photoframe:9222` from network
 - **Redeploy process**: Create tarball on dev machine (no git on home-pc), SCP to `home@home-pc`, extract over `C:\Users\Home\photo-frame`, run `docker compose -f docker-compose.prod.yml up --build -d`, then reboot Pi
 
 ---
