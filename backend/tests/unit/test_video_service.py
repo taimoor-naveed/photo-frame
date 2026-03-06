@@ -150,31 +150,32 @@ def test_scale_video_for_display_output_exists(tmp_dirs, large_video_file):
 
 
 def test_scale_video_for_display_caps_dimensions(tmp_dirs, large_video_file):
-    """2560x1440 video should be scaled so longest edge ≤ 1920."""
+    """2560x1440 video should be scaled to fit within 1024x600."""
     scale_video_for_display(
         large_video_file, "display_capped.mp4",
         display_dir=tmp_dirs["display"],
     )
 
     meta = get_video_metadata(tmp_dirs["display"] / "display_capped.mp4")
-    assert max(meta["width"], meta["height"]) <= 1920
+    assert meta["width"] <= 1024
+    assert meta["height"] <= 600
 
 
 def test_scale_video_for_display_preserves_aspect_ratio(tmp_dirs, large_video_file):
-    """Aspect ratio should be maintained (2560x1440 → 1920x1080)."""
+    """Aspect ratio should be maintained (2560x1440 → 1024x576)."""
     scale_video_for_display(
         large_video_file, "display_ar.mp4",
         display_dir=tmp_dirs["display"],
     )
 
     meta = get_video_metadata(tmp_dirs["display"] / "display_ar.mp4")
-    # 2560:1440 = 16:9 → 1920:1080
-    assert meta["width"] == 1920
-    assert meta["height"] == 1080
+    # 2560:1440 = 16:9 → fits in 1024x600 → 1024x576
+    assert meta["width"] == 1024
+    assert meta["height"] == 576
 
 
 def test_scale_video_for_display_small_stays_small(tmp_dirs, small_video_file):
-    """Video ≤ 1920px should keep its original dimensions (min filter preserves)."""
+    """Video within 1024x600 should keep its original dimensions (min filter preserves)."""
     scale_video_for_display(
         small_video_file, "display_small.mp4",
         display_dir=tmp_dirs["display"],
