@@ -23,7 +23,6 @@ err()   { printf "\033[1;31m==>\033[0m %s\n" "$1" >&2; }
 ssh_homepc() { ssh "$HOMEPC_HOST" "$1" 2>&1; }
 
 count_files() {
-    # Count files in a Windows directory, returns 0 for empty/missing
     local count
     count=$(ssh_homepc "dir /b $1 2>nul" | tr -d '\r' | grep -c '.' || true)
     echo "${count:-0}"
@@ -31,15 +30,24 @@ count_files() {
 
 # ─── Prerequisite checks ───────────────────────────────────
 info "Checking prerequisites..."
-
 if ! ssh "$HOMEPC_HOST" "echo ok" &>/dev/null; then
     err "Cannot SSH into $HOMEPC_HOST. Check key-based auth."
     exit 1
 fi
 
+# Abort if stale backup exists from a previous failed deploy
+STALE_COUNT=$(count_files "$HOMEPC_BACKUP_DIR")
+if [ "$STALE_COUNT" -gt 0 ]; then
+    err "Stale backup found at $HOMEPC_BACKUP_DIR ($STALE_COUNT files)"
+    err "Investigate and remove it manually before deploying."
+    exit 1
+fi
+# Clean up empty stale backup dir if it exists
+ssh_homepc "rmdir $HOMEPC_BACKUP_DIR 2>nul & echo ok" > /dev/null
+
 ok "Prerequisites passed"
 
-# ─── Step 1: Create tarball ────────────────────────────────
+# ─── Step 1: Create tarball + upload ────────────────────────
 info "Creating tarball from $REPO_ROOT..."
 tar czf "$LOCAL_TARBALL" \
     --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
@@ -49,45 +57,58 @@ tar czf "$LOCAL_TARBALL" \
     -C "$REPO_ROOT" .
 ok "Tarball created: $(du -h "$LOCAL_TARBALL" | cut -f1)"
 
-# ─── Step 2: SCP tarball to home-pc ────────────────────────
 info "Copying tarball to $HOMEPC_HOST..."
 scp "$LOCAL_TARBALL" "$HOMEPC_HOST:$HOMEPC_TARBALL"
 ok "Tarball uploaded"
 
-# ─── Step 3: Backup originals from running container ───────
-# docker cp copies the directory INTO the target, so we get
-# photo-frame-backup/originals/<files>
-HOMEPC_ORIGINALS_DIR="$HOMEPC_BACKUP_DIR\\originals"
-BACKUP_COUNT=0
-info "Backing up originals from container..."
-if ssh_homepc "docker ps --format {{.Names}}" 2>/dev/null | grep -q "photo-frame-backend"; then
-    ssh_homepc "docker cp photo-frame-backend-1:/app/data/originals $HOMEPC_BACKUP_DIR"
-    BACKUP_COUNT=$(count_files "$HOMEPC_ORIGINALS_DIR")
-    if [ "$BACKUP_COUNT" -gt 0 ]; then
-        ok "Backed up $BACKUP_COUNT files"
-    else
-        info "Container running but no originals to back up"
-    fi
+# ─── Step 2: Stop containers ───────────────────────────────
+# Check if containers exist before trying to stop/backup
+CONTAINER_EXISTS=false
+if ssh_homepc "docker ps -a --format {{.Names}}" 2>/dev/null | grep -q "photo-frame-backend"; then
+    CONTAINER_EXISTS=true
+    info "Stopping containers..."
+    ssh_homepc "cd $HOMEPC_PROJECT_DIR && docker compose -f docker-compose.prod.yml stop" || true
+    ok "Containers stopped"
 else
-    info "No running container found — skipping backup (first deploy?)"
+    info "No existing containers found (first deploy)"
 fi
 
-# ─── Step 4: Tear down containers + volume ─────────────────
-info "Tearing down containers and volume..."
-ssh_homepc "cd $HOMEPC_PROJECT_DIR && docker compose -f docker-compose.prod.yml down -v" || true
-ok "Containers and volume removed"
+# ─── Step 3: Backup originals from stopped container ───────
+HOMEPC_ORIGINALS_DIR="$HOMEPC_BACKUP_DIR\\originals"
+BACKUP_COUNT=0
 
-# ─── Step 5: Extract new code ──────────────────────────────
-info "Extracting new code on home-pc..."
+if [ "$CONTAINER_EXISTS" = true ]; then
+    info "Backing up originals from container..."
+    # Pre-create backup dir so docker cp creates originals/ subdirectory inside it
+    ssh_homepc "mkdir $HOMEPC_BACKUP_DIR"
+    ssh_homepc "docker cp photo-frame-backend-1:/app/data/originals $HOMEPC_BACKUP_DIR"
+    BACKUP_COUNT=$(count_files "$HOMEPC_ORIGINALS_DIR")
+
+    if [ "$BACKUP_COUNT" -gt 0 ]; then
+        ok "Backed up $BACKUP_COUNT originals"
+    else
+        info "No originals in container (empty gallery)"
+    fi
+fi
+
+# ─── Step 4: Tear down everything (clean slate) ────────────
+if [ "$CONTAINER_EXISTS" = true ]; then
+    info "Removing containers + volume (clean slate)..."
+    ssh_homepc "cd $HOMEPC_PROJECT_DIR && docker compose -f docker-compose.prod.yml down -v" || true
+    ok "Clean slate — containers and volume removed"
+fi
+
+# ─── Step 5: Extract fresh code ────────────────────────────
+info "Extracting new code..."
 ssh_homepc "cd $HOMEPC_PROJECT_DIR && tar xzf $HOMEPC_TARBALL"
-ok "Code extracted"
+ok "Fresh code extracted"
 
-# ─── Step 6: Build and start containers ────────────────────
-info "Building and starting containers (this may take a while)..."
+# ─── Step 6: Start fresh containers ────────────────────────
+info "Building and starting fresh containers..."
 ssh_homepc "cd $HOMEPC_PROJECT_DIR && docker compose -f docker-compose.prod.yml up --build -d"
-ok "Containers started"
+ok "Fresh containers started"
 
-# ─── Step 7: Wait for backend to be healthy ────────────────
+# ─── Step 7: Health check ──────────────────────────────────
 info "Waiting for backend to be healthy..."
 ELAPSED=0
 while [ "$ELAPSED" -lt "$HEALTH_CHECK_TIMEOUT" ]; do
@@ -102,20 +123,19 @@ echo ""
 
 if [ "$ELAPSED" -ge "$HEALTH_CHECK_TIMEOUT" ]; then
     err "Backend did not become healthy within ${HEALTH_CHECK_TIMEOUT}s"
-    err "Check logs: ssh $HOMEPC_HOST \"cd $HOMEPC_PROJECT_DIR && docker compose -f docker-compose.prod.yml logs backend\""
+    if [ "$BACKUP_COUNT" -gt 0 ]; then
+        err "Backup preserved at: $HOMEPC_BACKUP_DIR"
+    fi
     exit 1
 fi
-ok "Backend is healthy"
+ok "Backend is healthy (empty database)"
 
 # ─── Step 8: Re-upload originals via API ───────────────────
 FAILED=0
 if [ "$BACKUP_COUNT" -gt 0 ]; then
-    info "Re-uploading $BACKUP_COUNT originals in batches of $UPLOAD_BATCH_SIZE..."
+    info "Re-uploading $BACKUP_COUNT originals (full reprocessing with new code)..."
 
-    # Get file list from the originals subfolder
     FILE_LIST=$(ssh_homepc "dir /b $HOMEPC_ORIGINALS_DIR")
-
-    # Build array of filenames
     FILES=()
     while IFS= read -r line; do
         line=$(echo "$line" | tr -d '\r')
@@ -125,14 +145,12 @@ if [ "$BACKUP_COUNT" -gt 0 ]; then
     TOTAL=${#FILES[@]}
     UPLOADED=0
 
-    # Upload in batches
     for ((i=0; i<TOTAL; i+=UPLOAD_BATCH_SIZE)); do
         BATCH=("${FILES[@]:i:UPLOAD_BATCH_SIZE}")
         BATCH_NUM=$(( (i / UPLOAD_BATCH_SIZE) + 1 ))
         BATCH_END=$((i + ${#BATCH[@]}))
         info "  Batch $BATCH_NUM: files $((i+1))-$BATCH_END of $TOTAL"
 
-        # Build curl -F flags
         CURL_ARGS=""
         for f in "${BATCH[@]}"; do
             CURL_ARGS="$CURL_ARGS -F \"files=@$HOMEPC_ORIGINALS_DIR\\$f\""
@@ -153,25 +171,33 @@ if [ "$BACKUP_COUNT" -gt 0 ]; then
 
     ok "Upload complete: $UPLOADED succeeded, $FAILED failed out of $TOTAL"
 
-    if [ "$FAILED" -gt 0 ]; then
-        err "Some uploads failed — backup preserved at $HOMEPC_BACKUP_DIR"
+    # ─── Step 9: Verify — new originals must match backup ──────
+    info "Verifying: comparing new container vs backup..."
+    NEW_COUNT=$(ssh_homepc "cd $HOMEPC_PROJECT_DIR && docker compose -f docker-compose.prod.yml exec -T backend ls /app/data/originals/" | tr -d '\r' | grep -c '.' || true)
+
+    if [ "$NEW_COUNT" -eq "$BACKUP_COUNT" ] && [ "$FAILED" -eq 0 ]; then
+        ok "Verified: $NEW_COUNT/$BACKUP_COUNT originals — all accounted for"
+        info "Removing backup..."
+        ssh_homepc "rmdir /s /q $HOMEPC_BACKUP_DIR"
+        ok "Backup removed"
+    else
+        err "MISMATCH: $NEW_COUNT in container vs $BACKUP_COUNT in backup ($FAILED upload failures)"
+        err "Backup preserved at: $HOMEPC_BACKUP_DIR — investigate before deleting!"
     fi
 else
     info "No originals to re-upload"
+    # Clean up empty backup dir if it was created
+    ssh_homepc "rmdir /s /q $HOMEPC_BACKUP_DIR 2>nul & echo ok" > /dev/null
 fi
 
-# ─── Step 9: Clean up on home-pc ──────────────────────────
-info "Cleaning up..."
-if [ "$BACKUP_COUNT" -gt 0 ] && [ "$FAILED" -eq 0 ]; then
-    ssh_homepc "rmdir /s /q $HOMEPC_BACKUP_DIR"
-    ok "Backup folder removed"
-elif [ "$BACKUP_COUNT" -gt 0 ]; then
-    info "Keeping backup folder due to upload failures: $HOMEPC_BACKUP_DIR"
-fi
+# ─── Step 10: Clean up tarball ─────────────────────────────
 ssh_homepc "del $HOMEPC_TARBALL"
-ok "Tarball removed from home-pc"
 rm -f "$LOCAL_TARBALL"
 
 # ─── Done ─────────────────────────────────────────────────
 echo ""
-ok "Deploy complete! Remember to manually refresh Chromium on the Pi."
+if [ "$FAILED" -gt 0 ]; then
+    err "Deploy finished with upload errors — backup at $HOMEPC_BACKUP_DIR"
+    exit 1
+fi
+ok "Deploy complete!"
