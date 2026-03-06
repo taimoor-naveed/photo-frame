@@ -444,6 +444,53 @@ describe("MediaDetailModal", () => {
     expect(jumpBtn).not.toHaveAttribute("title");
   });
 
+  it("delete button works on processing media", () => {
+    const onDelete = vi.fn();
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Delete"));
+    expect(screen.getByText("Delete media")).toBeInTheDocument();
+    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButtons[deleteButtons.length - 1]);
+    expect(onDelete).toHaveBeenCalledWith(3);
+  });
+
+  it("delete button works on error media", () => {
+    const onDelete = vi.fn();
+    render(
+      <MediaDetailModal
+        media={mockErrorVideo}
+        onClose={() => {}}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Delete"));
+    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButtons[deleteButtons.length - 1]);
+    expect(onDelete).toHaveBeenCalledWith(4);
+  });
+
+  it("jump button does not call API when disabled (processing)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Show in slideshow"));
+    // Give any potential async call time to fire
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it("shows processing overlay for processing photo", () => {
     const processingPhoto: Media = {
       ...mockPhoto,

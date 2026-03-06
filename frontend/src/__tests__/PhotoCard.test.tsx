@@ -162,6 +162,19 @@ describe("PhotoCard", () => {
 
   // ─── Selection mode visual tests ─────────────────────────
 
+  it("shows selection indicator on processing items in selection mode", () => {
+    const processing = { ...mockMedia, processing_status: "processing" as const };
+    render(<PhotoCard media={processing} selectionMode={true} selected={false} />);
+    expect(screen.getByTestId("selection-indicator")).toBeInTheDocument();
+    expect(screen.getByTestId("selection-unchecked")).toBeInTheDocument();
+  });
+
+  it("shows selection checked on selected processing items", () => {
+    const processing = { ...mockMedia, processing_status: "processing" as const };
+    render(<PhotoCard media={processing} selectionMode={true} selected={true} />);
+    expect(screen.getByTestId("selection-checked")).toBeInTheDocument();
+  });
+
   it("shows empty selection circle in selection mode when not selected", () => {
     render(<PhotoCard media={mockMedia} selectionMode={true} selected={false} />);
     expect(screen.getByTestId("selection-indicator")).toBeInTheDocument();

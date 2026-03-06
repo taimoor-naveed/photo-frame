@@ -342,6 +342,62 @@ describe("GalleryPage", () => {
     expect(bulkCall).toBeDefined();
   });
 
+  // ─── Processing/Error Interaction Tests ──────────────────
+
+  it("long-press on processing item enters selection mode", async () => {
+    const processingMedia: Media = {
+      ...mockMedia1,
+      id: 10,
+      processing_status: "processing" as const,
+    };
+    const listWithProcessing: MediaList = {
+      items: [mockMedia1, processingMedia],
+      total: 2,
+      page: 1,
+      per_page: 50,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => listWithProcessing,
+    } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    // Long-press the processing item (index 1)
+    longPressCard(1);
+
+    expect(screen.getByTestId("selection-action-bar")).toBeInTheDocument();
+    expect(screen.getByText("1 item selected")).toBeInTheDocument();
+  });
+
+  it("click on processing item opens modal", async () => {
+    const processingMedia: Media = {
+      ...mockMedia1,
+      id: 10,
+      processing_status: "processing" as const,
+      processing_progress: 50,
+    };
+    const listWithProcessing: MediaList = {
+      items: [processingMedia],
+      total: 1,
+      page: 1,
+      per_page: 50,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => listWithProcessing,
+    } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    fireEvent.click(screen.getByTestId("photo-card"));
+    expect(screen.getByTestId("media-detail-modal")).toBeInTheDocument();
+    // Should show processing overlay — no video element
+    expect(document.querySelector("video")).toBeNull();
+  });
+
   it("select all selects all photos", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
