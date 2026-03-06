@@ -9,7 +9,7 @@ All core features implemented and tested. Ready for manual QA and RPi deployment
 | Suite | Tests | Status |
 |-------|-------|--------|
 | Backend (pytest) | 142 | All passing |
-| Frontend (vitest) | 123 | All passing |
+| Frontend (vitest) | 142 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
 | **Total** | **~465** | **Green** |
 
@@ -60,6 +60,25 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 ---
 
 ## Recent Changes
+
+### Live Modal Updates + Jump Button Fixes (2026-03-06)
+
+Modal now receives live WebSocket updates during video processing — progress animation updates in real-time instead of staying frozen at the state when the modal was opened. Jump-to-slideshow button auto-enables when processing completes while modal is open. Removed sticky focus highlight on jump button.
+
+- **GalleryPage**: `selectedMedia` now syncs with `photos` array (not just cleared on removal)
+- **MediaDetailModal**: Added `focus:outline-none` to jump button
+- **CLAUDE.md**: Added "update tests before running them" rule
+- **Tests**: 3 new (live progress update, processing→ready transition, focus class)
+
+### Processing/Error Media Interactions (2026-03-06)
+
+Allow full user interaction with media in any processing state. Previously, processing/error items blocked click, long press, and selection.
+
+- **PhotoCard**: Removed processing/error guards from `handlePointerDown` and `handleClick`
+- **MediaDetailModal**: Processing overlay (circular progress) and error overlay shown instead of video player for non-ready media
+- **Jump button**: Disabled with tooltip for processing/error media, enabled for ready
+- **Backend**: `POST /api/media/slideshow/jump` rejects non-ready media with 400
+- **Tests**: 19 new tests (frontend + backend)
 
 ### Blur Background Size Increase (2026-03-06)
 
