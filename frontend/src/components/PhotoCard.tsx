@@ -34,14 +34,13 @@ export default function PhotoCard({
   }, []);
 
   const handlePointerDown = useCallback(() => {
-    if (isProcessing || isError) return;
     didLongPress.current = false;
     longPressTimer.current = setTimeout(() => {
       didLongPress.current = true;
       longPressTimer.current = null;
       onLongPress?.(media);
     }, LONG_PRESS_MS);
-  }, [isProcessing, isError, media, onLongPress]);
+  }, [media, onLongPress]);
 
   const handlePointerUp = useCallback(() => {
     clearTimer();
