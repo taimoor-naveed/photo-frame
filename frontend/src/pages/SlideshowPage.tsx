@@ -14,7 +14,8 @@ export default function SlideshowPage() {
     currentIndex: 0,
   });
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
-  const [transitioning, setTransitioning] = useState(false);
+  const [animating, setAnimating] = useState(false);
+  const [slideForward, setSlideForward] = useState(true);
   const [paused, setPaused] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
 
@@ -91,27 +92,20 @@ export default function SlideshowPage() {
       waitingForVideo.current = false;
       setPrevIndex(currentIndex);
       setSlide((prev) => ({ ...prev, currentIndex: next }));
-      setTransitioning(true);
-      // Double rAF: first ensures the DOM renders with transitioning=true (opacity 0),
-      // second triggers the CSS transition to opacity 1
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setTransitioning(false);
-        });
-      });
-      // Clear previous slide after transition completes
-      setTimeout(() => setPrevIndex(null), 900);
+      setAnimating(true);
     },
     [currentIndex, playlist.length],
   );
 
   const goNext = useCallback(() => {
     if (!playlist.length) return;
+    setSlideForward(true);
     goToSlide((currentIndex + 1) % playlist.length);
   }, [currentIndex, playlist.length, goToSlide]);
 
   const goPrev = useCallback(() => {
     if (!playlist.length) return;
+    setSlideForward(false);
     goToSlide((currentIndex - 1 + playlist.length) % playlist.length);
   }, [currentIndex, playlist.length, goToSlide]);
 
@@ -288,6 +282,7 @@ export default function SlideshowPage() {
         const { id } = event.payload as { id: number };
         const idx = playlistRef.current.findIndex((m) => m.id === id);
         if (idx !== -1 && idx !== currentIndexRef.current) {
+          setSlideForward(true);
           goToSlideRef.current(idx);
         }
       }
@@ -371,6 +366,16 @@ export default function SlideshowPage() {
     };
   }, [currentIndex, playlist]);
 
+  // ─── "none" transition cleanup (onAnimationEnd won't fire) ──
+
+  const transitionStyle = settings?.transition_type ?? "none";
+  useEffect(() => {
+    if (animating && transitionStyle === "none") {
+      setAnimating(false);
+      setPrevIndex(null);
+    }
+  }, [animating, transitionStyle]);
+
   // ─── Render ──────────────────────────────────────────────────
 
   if (loading) {
@@ -397,8 +402,6 @@ export default function SlideshowPage() {
     );
   }
 
-  const transitionStyle = settings?.transition_type ?? "none";
-
   return (
     <div
       onPointerDown={handlePointerDown}
@@ -407,49 +410,31 @@ export default function SlideshowPage() {
       className="fixed inset-0 bg-black select-none overflow-hidden"
       style={{ cursor: overlayVisible ? "auto" : "none" }}
     >
-      {/* Previous slide (fading/sliding out) */}
+      {/* Previous slide (animates out) — key forces new DOM element per slide for fresh animation */}
       {prevMedia && (
         <div
+          key={prevMedia.id}
           className={`absolute inset-0 z-0 ${
-            transitionStyle === "slide"
-              ? "transition-transform duration-[800ms] ease-in-out"
-              : ""
+            animating && transitionStyle === "crossfade" ? "anim-crossfade-out"
+            : animating && transitionStyle === "slide" ? (slideForward ? "anim-slide-out-fwd" : "anim-slide-out-back")
+            : ""
           }`}
-          style={{
-            transform:
-              transitionStyle === "slide"
-                ? transitioning
-                  ? "translateX(0)"
-                  : "translateX(-100%)"
-                : undefined,
-          }}
         >
           <Slide media={prevMedia} videoRef={prevVideoRef} />
         </div>
       )}
 
-      {/* Current slide */}
+      {/* Current slide (animates in) — key forces new DOM element per slide for fresh animation */}
       <div
+        key={currentMedia?.id ?? "empty"}
         className={`absolute inset-0 z-10 ${
-          transitionStyle === "crossfade"
-            ? "transition-opacity duration-[800ms] ease-in-out"
-            : transitionStyle === "slide"
-              ? "transition-transform duration-[800ms] ease-in-out"
-              : ""
+          animating && transitionStyle === "crossfade" ? "anim-crossfade-in"
+          : animating && transitionStyle === "slide" ? (slideForward ? "anim-slide-in-fwd" : "anim-slide-in-back")
+          : ""
         }`}
-        style={{
-          opacity:
-            transitionStyle === "crossfade"
-              ? transitioning
-                ? 0
-                : 1
-              : undefined,
-          transform:
-            transitionStyle === "slide"
-              ? transitioning
-                ? "translateX(100%)"
-                : "translateX(0)"
-              : undefined,
+        onAnimationEnd={() => {
+          setAnimating(false);
+          setPrevIndex(null);
         }}
       >
         {currentMedia && (
