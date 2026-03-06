@@ -34,6 +34,21 @@ const mockVideo: Media = {
   codec: "h264",
 };
 
+const mockProcessingVideo: Media = {
+  ...mockVideo,
+  id: 3,
+  processing_status: "processing",
+  processing_progress: 42,
+  transcoded_filename: null,
+};
+
+const mockErrorVideo: Media = {
+  ...mockVideo,
+  id: 4,
+  processing_status: "error",
+  transcoded_filename: null,
+};
+
 describe("MediaDetailModal", () => {
   it("renders nothing when media is null", () => {
     const { container } = render(
@@ -356,5 +371,144 @@ describe("MediaDetailModal", () => {
     expect(screen.queryByText(/Failed to jump slideshow/)).not.toBeInTheDocument();
 
     fetchSpy.mockRestore();
+  });
+
+  // ─── Processing/Error State in Modal ──────────────────────
+
+  it("shows processing overlay instead of video player for processing video", () => {
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(document.querySelector("video")).toBeNull();
+    const img = screen.getByAltText("vacation.mp4");
+    expect(img).toHaveAttribute("src", "/uploads/thumbnails/thumb_clip.jpg");
+    expect(screen.getByText("42%")).toBeInTheDocument();
+  });
+
+  it("shows error overlay instead of video player for error video", () => {
+    render(
+      <MediaDetailModal
+        media={mockErrorVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(document.querySelector("video")).toBeNull();
+    const img = screen.getByAltText("vacation.mp4");
+    expect(img).toHaveAttribute("src", "/uploads/thumbnails/thumb_clip.jpg");
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+  });
+
+  // ─── Jump Button State for Processing/Error ─────────────
+
+  it("jump button is disabled for processing media", () => {
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const jumpBtn = screen.getByLabelText("Show in slideshow");
+    expect(jumpBtn).toBeDisabled();
+    expect(jumpBtn).toHaveAttribute("title", "Not available while processing");
+  });
+
+  it("jump button is disabled for error media", () => {
+    render(
+      <MediaDetailModal
+        media={mockErrorVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const jumpBtn = screen.getByLabelText("Show in slideshow");
+    expect(jumpBtn).toBeDisabled();
+    expect(jumpBtn).toHaveAttribute("title", "Not available for failed media");
+  });
+
+  it("jump button is enabled for ready media", () => {
+    render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const jumpBtn = screen.getByLabelText("Show in slideshow");
+    expect(jumpBtn).not.toBeDisabled();
+    expect(jumpBtn).not.toHaveAttribute("title");
+  });
+
+  it("delete button works on processing media", () => {
+    const onDelete = vi.fn();
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Delete"));
+    expect(screen.getByText("Delete media")).toBeInTheDocument();
+    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButtons[deleteButtons.length - 1]);
+    expect(onDelete).toHaveBeenCalledWith(3);
+  });
+
+  it("delete button works on error media", () => {
+    const onDelete = vi.fn();
+    render(
+      <MediaDetailModal
+        media={mockErrorVideo}
+        onClose={() => {}}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Delete"));
+    const deleteButtons = screen.getAllByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButtons[deleteButtons.length - 1]);
+    expect(onDelete).toHaveBeenCalledWith(4);
+  });
+
+  it("jump button does not call API when disabled (processing)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Show in slideshow"));
+    // Give any potential async call time to fire
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("shows processing overlay for processing photo", () => {
+    const processingPhoto: Media = {
+      ...mockPhoto,
+      processing_status: "processing",
+      processing_progress: 75,
+    };
+    render(
+      <MediaDetailModal
+        media={processingPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const imgs = screen.getAllByAltText("sunset.jpg");
+    const hasThumbnail = imgs.some((img) =>
+      img.getAttribute("src")?.includes("/uploads/thumbnails/"),
+    );
+    expect(hasThumbnail).toBe(true);
+    expect(screen.getByText("75%")).toBeInTheDocument();
   });
 });

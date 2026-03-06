@@ -34,14 +34,13 @@ export default function PhotoCard({
   }, []);
 
   const handlePointerDown = useCallback(() => {
-    if (isProcessing || isError) return;
     didLongPress.current = false;
     longPressTimer.current = setTimeout(() => {
       didLongPress.current = true;
       longPressTimer.current = null;
       onLongPress?.(media);
     }, LONG_PRESS_MS);
-  }, [isProcessing, isError, media, onLongPress]);
+  }, [media, onLongPress]);
 
   const handlePointerUp = useCallback(() => {
     clearTimer();
@@ -52,14 +51,13 @@ export default function PhotoCard({
       didLongPress.current = false;
       return;
     }
-    if (isProcessing || isError) return;
 
     if (selectionMode) {
       onToggleSelect?.(media);
     } else {
       onClick?.(media);
     }
-  }, [isProcessing, isError, selectionMode, media, onClick, onToggleSelect]);
+  }, [selectionMode, media, onClick, onToggleSelect]);
 
   return (
     <div

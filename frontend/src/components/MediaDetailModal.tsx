@@ -73,6 +73,13 @@ export default function MediaDetailModal({
 
   if (!media) return null;
 
+  const isReady = media.processing_status === "ready";
+  const jumpTitle = media.processing_status === "processing"
+    ? "Not available while processing"
+    : media.processing_status === "error"
+      ? "Not available for failed media"
+      : undefined;
+
   return (
     <>
       {/* Backdrop */}
@@ -95,8 +102,9 @@ export default function MediaDetailModal({
             </h2>
             <div className="flex items-center gap-1 shrink-0">
               <button
-                onClick={async () => {
-                  if (!media || jumping) return;
+                onClick={async (e) => {
+                  const btn = e.currentTarget;
+                  if (!media || jumping || !isReady) return;
                   setJumping(true);
                   setJumpError(null);
                   try {
@@ -105,10 +113,12 @@ export default function MediaDetailModal({
                     setJumpError("Failed to jump slideshow");
                   } finally {
                     setJumping(false);
+                    btn.blur();
                   }
                 }}
-                disabled={jumping}
-                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+                disabled={jumping || !isReady}
+                title={jumpTitle}
+                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="Show in slideshow"
               >
                 <svg
@@ -207,7 +217,56 @@ export default function MediaDetailModal({
 
           {/* Media area */}
           <div className="flex-1 min-h-0 bg-black flex items-center justify-center overflow-hidden">
-            {media.media_type === "video" ? (
+            {media.processing_status === "processing" ? (
+              <div className="relative flex items-center justify-center">
+                <img
+                  src={thumbnailUrl(media)}
+                  alt={media.original_name}
+                  className="max-w-full max-h-[70vh] object-contain opacity-40"
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <svg className="h-16 w-16 -rotate-90" viewBox="0 0 48 48">
+                    <circle
+                      cx="24" cy="24" r="20"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.2)"
+                      strokeWidth="3"
+                    />
+                    <circle
+                      cx="24" cy="24" r="20"
+                      fill="none"
+                      stroke="#D4956A"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray={2 * Math.PI * 20}
+                      strokeDashoffset={
+                        2 * Math.PI * 20 * (1 - (media.processing_progress ?? 0) / 100)
+                      }
+                      className="transition-[stroke-dashoffset] duration-500 ease-out"
+                    />
+                  </svg>
+                  <span className="text-sm font-medium text-warm-white drop-shadow-md mt-2">
+                    {media.processing_progress != null && media.processing_progress > 0
+                      ? `${media.processing_progress}%`
+                      : "Processing..."}
+                  </span>
+                </div>
+              </div>
+            ) : media.processing_status === "error" ? (
+              <div className="relative flex items-center justify-center">
+                <img
+                  src={thumbnailUrl(media)}
+                  alt={media.original_name}
+                  className="max-w-full max-h-[70vh] object-contain opacity-60"
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <svg className="h-10 w-10 text-red-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-medium text-red-300">Failed</span>
+                </div>
+              </div>
+            ) : media.media_type === "video" ? (
               <video
                 src={originalUrl(media)}
                 data-media-id={media.id}
@@ -218,7 +277,6 @@ export default function MediaDetailModal({
               />
             ) : (
               <div className="relative flex items-center justify-center w-full h-full">
-                {/* Thumbnail placeholder while full image loads */}
                 {!imageLoaded && (
                   <img
                     src={thumbnailUrl(media)}
