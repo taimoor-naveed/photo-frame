@@ -100,7 +100,7 @@ export default function SlideshowPage() {
         });
       });
       // Clear previous slide after transition completes
-      setTimeout(() => setPrevIndex(null), 600);
+      setTimeout(() => setPrevIndex(null), 900);
     },
     [currentIndex, playlist.length],
   );
@@ -412,7 +412,7 @@ export default function SlideshowPage() {
         <div
           className={`absolute inset-0 z-0 ${
             transitionStyle === "slide"
-              ? "transition-transform duration-500 ease-in-out"
+              ? "transition-transform duration-[800ms] ease-in-out"
               : ""
           }`}
           style={{
@@ -432,9 +432,9 @@ export default function SlideshowPage() {
       <div
         className={`absolute inset-0 z-10 ${
           transitionStyle === "crossfade"
-            ? "transition-opacity duration-500 ease-in-out"
+            ? "transition-opacity duration-[800ms] ease-in-out"
             : transitionStyle === "slide"
-              ? "transition-transform duration-500 ease-in-out"
+              ? "transition-transform duration-[800ms] ease-in-out"
               : ""
         }`}
         style={{
