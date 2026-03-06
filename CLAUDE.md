@@ -107,7 +107,7 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **StrictMode double-fetch**: React 19 StrictMode double-invokes effects, causing duplicate fetches. Use refs (e.g. `initialBuildDone`) to guard one-time operations.
 - **Scripts not in container**: `scripts/` is at repo root, not inside `backend/`. To run a script in prod: `cat script.py | ssh home@home-pc "... docker compose exec -T backend python -"` (pipe via stdin).
 - **Deploy preserves volume**: `deploy.sh` uses `docker compose down` (no `-v`) so the data volume survives across deploys. Never use `down -v` in production — it destroys all uploads.
-- **Deployment procedure**: (1) SSH into Pi, kill Chromium (`pkill -9 chromium`), (2) run `scripts/deploy.sh` from Mac, (3) run any migration scripts on home-pc, (4) restart Chromium from the same SSH session (no reboot needed): `WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 nohup chromium --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --disable-translate --no-first-run --start-fullscreen --enable-features=VaapiVideoDecoder --enable-gpu-rasterization --remote-debugging-port=9222 http://home-pc/slideshow > /tmp/chromium.log 2>&1 & disown`
+- **Deployment procedure**: Use the `deploy` skill (`.claude/skills/deploy.md`) — it has the full step-by-step procedure including Pi Chromium restart.
 
 ## Lessons Learned (QA Breaker — 2026-03-02)
 
