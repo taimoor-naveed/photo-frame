@@ -98,6 +98,8 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **No third-party gesture libraries.** Raw `onPointerDown`/`onPointerUp` for tap zones and long press. Libraries add indirection that conflicts with simple interaction models.
 - **Design async from day one.** If any operation can take >1s (ffmpeg, large upload, external API), architect it as background + status tracking from the start. Retrofitting async is always a multi-file rework.
 - **Never add deps to `handleWsEvent`'s `useCallback`.** Adding deps causes WS reconnects. Use the ref pattern (`goToSlideRef`, `playlistRef`) to access fresh values inside the handler without new deps.
+- **CSS `@keyframes` > boolean state flips for animations.** Don't use `requestAnimationFrame` or `setTimeout` to trigger CSS transitions — the browser may not paint the initial state. Use `@keyframes` animations with CSS classes; they're declarative and reliable.
+- **Use `key` to force fresh CSS animations.** CSS won't restart an animation already on a DOM element. Use React `key={media.id}` to force a new element on content change, guaranteeing a fresh animation start.
 
 ## Known Gotchas
 
@@ -108,9 +110,11 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **WebSocket event format**: Backend sends `{"type": ..., "payload": ...}` to match frontend `WsEvent` interface. Any mismatch is silent (TypeScript `as` cast swallows it).
 - **File input clearing**: Some browsers invalidate `File` objects when `input.value = ""` — copy files to array first.
 - **StrictMode double-fetch**: React 19 StrictMode double-invokes effects, causing duplicate fetches. Use refs (e.g. `initialBuildDone`) to guard one-time operations.
+- **Hooks before early returns**: Never place `useEffect` after `if (loading) return` or `if (!data) return`. React requires hooks in the same order every render — conditional early returns that skip hooks cause a crash.
 - **Scripts not in container**: `scripts/` is at repo root, not inside `backend/`. To run a script in prod: `cat script.py | ssh home@home-pc "... docker compose exec -T backend python -"` (pipe via stdin).
 - **Deploy is clean-slate**: `deploy.sh` uses `docker compose down -v`, backs up originals, rebuilds from scratch, then re-uploads originals through the API (so they get reprocessed with new code). The backup is verified and removed on success.
 - **Deployment procedure**: Use the `deploy` skill (`.claude/skills/deploy.md`) — it has the full step-by-step procedure including Pi Chromium restart.
+- **Use Playwright for frontend debugging**: When debugging visual/animation/state issues, use Playwright automatically via `docker compose --profile test run --rm e2e node -e "..."` to inspect DOM, check computed styles, and verify behavior — don't ask the user to check the browser console.
 
 ## Lessons Learned (QA Breaker — 2026-03-02)
 
