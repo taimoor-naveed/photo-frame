@@ -679,7 +679,7 @@ describe("SlideshowPage", () => {
     expect(idAfter).not.toBe(idBefore);
   });
 
-  it("uses pre-rendered blur image instead of CSS blur", async () => {
+  it("always uses CSS blur for photo backgrounds (ignores blur_filename)", async () => {
     const photo = { ...makePhoto(1), blur_filename: "blur_abc.jpg" };
     mockFetch([photo]);
 
@@ -693,13 +693,15 @@ describe("SlideshowPage", () => {
 
     const bgImg = document.querySelector("img[aria-hidden='true']") as HTMLImageElement;
     expect(bgImg).toBeTruthy();
-    expect(bgImg.src).toContain("/uploads/blur/blur_abc.jpg");
-    expect(bgImg.className).not.toContain("blur-");
-    expect(bgImg.className).not.toContain("scale-");
+    // Should use the display/original URL, not the blur URL
+    expect(bgImg.src).toContain("/uploads/originals/photo1.jpg");
+    expect(bgImg.src).not.toContain("/uploads/blur/");
+    expect(bgImg.className).toContain("blur-");
+    expect(bgImg.className).toContain("scale-");
   });
 
-  it("falls back to CSS blur when blur_filename is null", async () => {
-    mockFetch([makePhoto(1)]); // blur_filename is null by default
+  it("uses CSS blur background for videos via second video element", async () => {
+    mockFetch([makeVideo(1)]);
 
     render(
       <MemoryRouter>
@@ -709,10 +711,17 @@ describe("SlideshowPage", () => {
 
     await waitForSlideshow();
 
-    const bgImg = document.querySelector("img[aria-hidden='true']") as HTMLImageElement;
-    expect(bgImg).toBeTruthy();
-    expect(bgImg.src).toContain("/uploads/originals/photo1.jpg");
-    expect(bgImg.className).toContain("blur-");
+    // Should have 2 video elements: background blur + foreground
+    const videos = document.querySelectorAll("video");
+    expect(videos.length).toBe(2);
+
+    const bgVideo = videos[0];
+    expect(bgVideo.getAttribute("aria-hidden")).toBe("true");
+    expect(bgVideo.className).toContain("blur-");
+    expect(bgVideo.className).toContain("scale-");
+
+    const fgVideo = videos[1];
+    expect(fgVideo.getAttribute("data-media-id")).toBe("1");
   });
 
   it("navigation wraps forward and backward at boundaries", async () => {
