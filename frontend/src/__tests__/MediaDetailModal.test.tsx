@@ -403,6 +403,47 @@ describe("MediaDetailModal", () => {
     expect(screen.getByText("Failed")).toBeInTheDocument();
   });
 
+  // ─── Jump Button State for Processing/Error ─────────────
+
+  it("jump button is disabled for processing media", () => {
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const jumpBtn = screen.getByLabelText("Show in slideshow");
+    expect(jumpBtn).toBeDisabled();
+    expect(jumpBtn).toHaveAttribute("title", "Not available while processing");
+  });
+
+  it("jump button is disabled for error media", () => {
+    render(
+      <MediaDetailModal
+        media={mockErrorVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const jumpBtn = screen.getByLabelText("Show in slideshow");
+    expect(jumpBtn).toBeDisabled();
+    expect(jumpBtn).toHaveAttribute("title", "Not available for failed media");
+  });
+
+  it("jump button is enabled for ready media", () => {
+    render(
+      <MediaDetailModal
+        media={mockPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const jumpBtn = screen.getByLabelText("Show in slideshow");
+    expect(jumpBtn).not.toBeDisabled();
+    expect(jumpBtn).not.toHaveAttribute("title");
+  });
+
   it("shows processing overlay for processing photo", () => {
     const processingPhoto: Media = {
       ...mockPhoto,
