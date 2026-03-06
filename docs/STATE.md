@@ -61,6 +61,14 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
 ## Recent Changes
 
+### Blur Background Size Increase (2026-03-06)
+
+Pre-rendered blur backgrounds were 64px — too small, all looked identical (vague color blobs). Increased to 320px with proportionally scaled blur radius (10→30) so each photo has a visually distinct background.
+
+- **Config**: `BLUR_SIZE` 64→320, blur radius 10→30 in both `image.py` and `video.py`
+- **Migration**: `scripts/regenerate-blur.py` regenerates blur images for existing media
+- **File size impact**: Minimal — 320px blurred JPEGs at quality 60 are still ~10-30KB
+
 ### WebSocket Robustness + Kiosk Debugging (2026-03-06)
 
 Slideshow page froze on Pi after using jump feature. Root cause unconfirmed (likely Chromium renderer-level GPU issue), but backend WS had reliability bugs.
@@ -81,7 +89,7 @@ Cross-device "Show in slideshow" feature. From any device's gallery modal, press
 
 Four universal improvements to eliminate slideshow sluggishness on all clients:
 
-1. **Pre-rendered blur backgrounds**: Tiny (~64px) pre-blurred JPEGs generated at upload, replacing real-time CSS `blur(30px)`. Eliminates GPU compositing overhead on every slide transition. New `blur_filename` field on Media model, `/uploads/blur/` route, startup backfill for existing media.
+1. **Pre-rendered blur backgrounds**: Pre-blurred JPEGs (320px, radius 30) generated at upload, replacing real-time CSS `blur(30px)`. Eliminates GPU compositing overhead on every slide transition. New `blur_filename` field on Media model, `/uploads/blur/` route, startup backfill for existing media.
 2. **H.264 Main profile + level 4.0**: All ffmpeg encode commands now use `-profile:v main -level 4.0` instead of defaulting to High profile. Main profile is universally supported and hardware-decoded efficiently by RPi VideoCore VI.
 3. **Cache headers**: All `/uploads/*` routes now return `Cache-Control: public, max-age=31536000, immutable`. Filenames contain UUIDs so this is safe. Second loop through playlist loads from browser disk cache.
 4. **Video preloading**: Next video is preloaded via hidden `<video preload="auto">` element alongside existing photo preloading. Blur images for the next slide are also preloaded. Discarded on manual skip.
@@ -179,7 +187,7 @@ Slideshow now serves display-optimized media (1920px max) instead of full origin
 - **Kiosk browser**: Chromium in kiosk mode, launched via labwc autostart (`~/.config/labwc/autostart`), pointing to `http://home-pc/slideshow`
 - **Auto-start on boot**: labwc desktop session auto-launches Chromium with `--kiosk --start-fullscreen --enable-features=VaapiVideoDecoder --enable-gpu-rasterization --remote-debugging-port=9222`
 - **Remote debugging**: Chromium exposes DevTools on port 9222 — `curl http://localhost:9222/json` from Pi, or `http://photoframe:9222` from network
-- **Redeploy process**: Create tarball on dev machine (no git on home-pc), SCP to `home@home-pc`, extract over `C:\Users\Home\photo-frame`, run `docker compose -f docker-compose.prod.yml up --build -d`, then reboot Pi
+- **Redeploy process**: (1) Kill Chromium on Pi (`pkill -9 chromium`), (2) run `scripts/deploy.sh` from dev machine (tarball + SCP + rebuild on home-pc), (3) run any migration scripts, (4) reboot Pi (`sudo reboot`) to restart slideshow via labwc autostart
 
 ---
 
