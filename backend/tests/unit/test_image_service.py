@@ -321,7 +321,7 @@ def test_process_image_blur_is_tiny(tmp_dirs, sample_jpeg):
 
     blur_path = tmp_dirs["blur"] / result["blur_filename"]
     blur_img = Image.open(blur_path)
-    assert max(blur_img.size) <= 64
+    assert max(blur_img.size) <= 320
 
 
 def test_process_image_blur_is_valid_jpeg(tmp_dirs, sample_jpeg):

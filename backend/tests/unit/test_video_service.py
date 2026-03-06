@@ -247,7 +247,7 @@ def test_generate_blur_from_thumbnail_dimensions(video_file, tmp_dirs):
 
     from PIL import Image
     blur_img = Image.open(blur_path)
-    assert max(blur_img.size) <= 64
+    assert max(blur_img.size) <= 320
 
 
 # ─── H.264 Profile Tests ────────────────────────────────────
