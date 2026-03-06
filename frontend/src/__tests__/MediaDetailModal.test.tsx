@@ -34,6 +34,21 @@ const mockVideo: Media = {
   codec: "h264",
 };
 
+const mockProcessingVideo: Media = {
+  ...mockVideo,
+  id: 3,
+  processing_status: "processing",
+  processing_progress: 42,
+  transcoded_filename: null,
+};
+
+const mockErrorVideo: Media = {
+  ...mockVideo,
+  id: 4,
+  processing_status: "error",
+  transcoded_filename: null,
+};
+
 describe("MediaDetailModal", () => {
   it("renders nothing when media is null", () => {
     const { container } = render(
@@ -356,5 +371,56 @@ describe("MediaDetailModal", () => {
     expect(screen.queryByText(/Failed to jump slideshow/)).not.toBeInTheDocument();
 
     fetchSpy.mockRestore();
+  });
+
+  // ─── Processing/Error State in Modal ──────────────────────
+
+  it("shows processing overlay instead of video player for processing video", () => {
+    render(
+      <MediaDetailModal
+        media={mockProcessingVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(document.querySelector("video")).toBeNull();
+    const img = screen.getByAltText("vacation.mp4");
+    expect(img).toHaveAttribute("src", "/uploads/thumbnails/thumb_clip.jpg");
+    expect(screen.getByText("42%")).toBeInTheDocument();
+  });
+
+  it("shows error overlay instead of video player for error video", () => {
+    render(
+      <MediaDetailModal
+        media={mockErrorVideo}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    expect(document.querySelector("video")).toBeNull();
+    const img = screen.getByAltText("vacation.mp4");
+    expect(img).toHaveAttribute("src", "/uploads/thumbnails/thumb_clip.jpg");
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+  });
+
+  it("shows processing overlay for processing photo", () => {
+    const processingPhoto: Media = {
+      ...mockPhoto,
+      processing_status: "processing",
+      processing_progress: 75,
+    };
+    render(
+      <MediaDetailModal
+        media={processingPhoto}
+        onClose={() => {}}
+        onDelete={() => {}}
+      />,
+    );
+    const imgs = screen.getAllByAltText("sunset.jpg");
+    const hasThumbnail = imgs.some((img) =>
+      img.getAttribute("src")?.includes("/uploads/thumbnails/"),
+    );
+    expect(hasThumbnail).toBe(true);
+    expect(screen.getByText("75%")).toBeInTheDocument();
   });
 });
