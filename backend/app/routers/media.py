@@ -280,6 +280,8 @@ async def slideshow_jump(body: SlideshowJumpRequest, db: Session = Depends(get_d
     media = db.query(Media).filter(Media.id == body.media_id).first()
     if not media:
         raise HTTPException(404, "Media not found")
+    if media.processing_status != "ready":
+        raise HTTPException(400, "Media is not ready for slideshow")
     asyncio.create_task(
         manager.broadcast({"type": "slideshow_jump", "payload": {"id": body.media_id}})
     )
