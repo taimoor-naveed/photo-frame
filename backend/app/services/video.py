@@ -113,7 +113,7 @@ def transcode_to_h264(
     duration: float | None = None,
     on_progress: Callable[[int], None] | None = None,
 ) -> Path:
-    """Transcode video to H.264 MP4, capped at DISPLAY_MAX_SIZE.
+    """Transcode video to H.264 MP4, capped at display bounding box.
 
     If *duration* and *on_progress* are provided, progress (0-100) is reported
     via the callback by parsing ffmpeg ``-progress`` output.
@@ -129,12 +129,12 @@ def transcode_to_h264(
         )
 
     # Simple path — no progress tracking
-    s = config.DISPLAY_MAX_SIZE
+    w, h = config.DISPLAY_MAX_WIDTH, config.DISPLAY_MAX_HEIGHT
     subprocess.run(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
-            "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
+            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-profile:v", "main", "-level", "4.0",
@@ -157,12 +157,12 @@ def _transcode_with_progress(
     on_progress: Callable[[int], None],
 ) -> Path:
     """Run ffmpeg with ``-progress pipe:1`` and report percentage via callback."""
-    s = config.DISPLAY_MAX_SIZE
+    w, h = config.DISPLAY_MAX_WIDTH, config.DISPLAY_MAX_HEIGHT
     proc = subprocess.Popen(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
-            "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
+            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-profile:v", "main", "-level", "4.0",
@@ -270,7 +270,7 @@ def scale_video_for_display(
     duration: float | None = None,
     on_progress: Callable[[int], None] | None = None,
 ) -> Path:
-    """Scale a browser-compatible video down to DISPLAY_MAX_SIZE for slideshow display.
+    """Scale a browser-compatible video down to display bounding box for slideshow display.
 
     Unlike transcode_to_h264, this re-encodes only for scaling — the input is already
     browser-compatible (H.264/VP8/VP9/AV1).
@@ -279,14 +279,14 @@ def scale_video_for_display(
         display_dir = config.DISPLAY_DIR
 
     output_path = display_dir / output_filename
-    s = config.DISPLAY_MAX_SIZE
+    w, h = config.DISPLAY_MAX_WIDTH, config.DISPLAY_MAX_HEIGHT
 
     if on_progress and duration and duration > 0:
         proc = subprocess.Popen(
             [
                 "ffmpeg", "-y",
                 "-i", str(video_path),
-                "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
+                "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
                 "-pix_fmt", "yuv420p",
                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
                 "-profile:v", "main", "-level", "4.0",
@@ -325,7 +325,7 @@ def scale_video_for_display(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
-            "-vf", f"scale='min({s},iw)':'min({s},ih)':force_original_aspect_ratio=decrease",
+            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-profile:v", "main", "-level", "4.0",
