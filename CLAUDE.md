@@ -134,6 +134,8 @@ Pi kiosk slideshow page froze completely after using the "Show in slideshow" jum
 
 **If this happens again:** SSH into Pi, run `curl -s http://localhost:9222/json` to check if page is alive, then use Chrome DevTools Protocol to get console logs before killing the browser.
 
+**Additional discovery:** When restarting Chromium from SSH, the process MUST be detached with `nohup`+`disown` or it dies when the SSH session ends (SIGHUP). GPU acceleration works fine when launched by labwc autostart but may crash when launched from SSH (different environment). Preferred restart method: `sudo reboot`.
+
 ## Lessons Learned (QA Breaker Round 2 — 2026-03-05)
 
 Four more bugs found despite 114 passing tests. Root cause: tests didn't probe poison inputs or async race conditions.
