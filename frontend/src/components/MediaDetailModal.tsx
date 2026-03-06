@@ -73,6 +73,13 @@ export default function MediaDetailModal({
 
   if (!media) return null;
 
+  const isReady = media.processing_status === "ready";
+  const jumpTitle = media.processing_status === "processing"
+    ? "Not available while processing"
+    : media.processing_status === "error"
+      ? "Not available for failed media"
+      : undefined;
+
   return (
     <>
       {/* Backdrop */}
@@ -95,8 +102,9 @@ export default function MediaDetailModal({
             </h2>
             <div className="flex items-center gap-1 shrink-0">
               <button
-                onClick={async () => {
-                  if (!media || jumping) return;
+                onClick={async (e) => {
+                  const btn = e.currentTarget;
+                  if (!media || jumping || !isReady) return;
                   setJumping(true);
                   setJumpError(null);
                   try {
@@ -105,10 +113,12 @@ export default function MediaDetailModal({
                     setJumpError("Failed to jump slideshow");
                   } finally {
                     setJumping(false);
+                    btn.blur();
                   }
                 }}
-                disabled={jumping}
-                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+                disabled={jumping || !isReady}
+                title={jumpTitle}
+                className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="Show in slideshow"
               >
                 <svg
