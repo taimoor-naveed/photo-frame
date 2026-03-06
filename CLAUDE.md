@@ -57,6 +57,9 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 
 ## Test Rules
 
+### Update tests before running them
+- **Every code change requires test updates before tests are run.** After modifying code, first update existing tests that are now stale (assertions that no longer match behavior), then add new tests for the new/changed behavior. Only then run the test suite. Never run tests against stale expectations — fix the tests first.
+
 ### Failure paths first, happy paths second
 - **Test failure cases before success cases.** Invalid input, corrupt data, network errors, and API failures catch more real bugs than happy paths. Every endpoint and user action must have at least one failure-path test.
 - **Backend validation tests are mandatory.** For every API endpoint, test: invalid input types, boundary values (0, -1, empty string, max+1), missing required fields, and malformed payloads. Use direct API calls — never rely solely on frontend constraints (HTML `min`/`max`, dropdown options) to enforce rules.

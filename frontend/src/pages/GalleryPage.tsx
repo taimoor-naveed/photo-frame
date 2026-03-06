@@ -12,10 +12,14 @@ export default function GalleryPage() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // Clear modal selection if the selected media is removed (e.g. via WebSocket)
+  // Sync modal selection with latest photo data (e.g. processing progress via WebSocket)
   useEffect(() => {
-    if (selectedMedia && !photos.some((p) => p.id === selectedMedia.id)) {
+    if (!selectedMedia) return;
+    const updated = photos.find((p) => p.id === selectedMedia.id);
+    if (!updated) {
       setSelectedMedia(null);
+    } else if (updated !== selectedMedia) {
+      setSelectedMedia(updated);
     }
   }, [photos, selectedMedia]);
 
