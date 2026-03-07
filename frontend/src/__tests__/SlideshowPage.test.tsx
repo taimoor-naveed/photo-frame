@@ -679,6 +679,185 @@ describe("SlideshowPage", () => {
     expect(idAfter).not.toBe(idBefore);
   });
 
+  it("animates transition when current photo is deleted", async () => {
+    mockFetch([makePhoto(1), makePhoto(2), makePhoto(3)], {
+      ...mockSettings,
+      transition_type: "crossfade",
+    });
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const idBefore = getCurrentMediaId()!;
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: idBefore } });
+    });
+
+    // The deleted item should appear as the animating-out prev slide (z-0 layer)
+    const prevSlide = document.querySelector(".z-0 [data-media-id]");
+    expect(prevSlide).toBeTruthy();
+    expect(Number(prevSlide!.getAttribute("data-media-id"))).toBe(idBefore);
+
+    // The prev slide container should have the crossfade-out animation class
+    const prevContainer = document.querySelector(".z-0.anim-crossfade-out");
+    expect(prevContainer).toBeTruthy();
+
+    // The new current slide should have the crossfade-in animation class
+    const currentContainer = document.querySelector(".z-10.anim-crossfade-in");
+    expect(currentContainer).toBeTruthy();
+  });
+
+  it("cleans up prev media after delete animation ends", async () => {
+    mockFetch([makePhoto(1), makePhoto(2), makePhoto(3)], {
+      ...mockSettings,
+      transition_type: "crossfade",
+    });
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const idBefore = getCurrentMediaId()!;
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: idBefore } });
+    });
+
+    // Prev slide should exist during animation
+    expect(document.querySelector(".z-0 [data-media-id]")).toBeTruthy();
+
+    // Simulate animation end on the current slide container (z-10)
+    const currentContainer = document.querySelector(".z-10");
+    await act(async () => {
+      currentContainer!.dispatchEvent(new Event("animationend", { bubbles: true }));
+    });
+
+    // Prev slide should be cleaned up — no z-0 layer with media
+    expect(document.querySelector(".z-0 [data-media-id]")).toBeNull();
+  });
+
+  it("does not animate when a non-current photo is deleted", async () => {
+    mockFetch([makePhoto(1), makePhoto(2), makePhoto(3)], {
+      ...mockSettings,
+      transition_type: "crossfade",
+    });
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const currentId = getCurrentMediaId()!;
+
+    // Delete a photo that is NOT currently displayed
+    const otherId = [1, 2, 3].find((id) => id !== currentId)!;
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: otherId } });
+    });
+
+    // No animation should be triggered — no prev slide layer with media
+    expect(document.querySelector(".z-0 [data-media-id]")).toBeNull();
+    expect(document.querySelector(".anim-crossfade-out")).toBeNull();
+    expect(document.querySelector(".anim-crossfade-in")).toBeNull();
+
+    // Current slide should still be the same
+    expect(getCurrentMediaId()).toBe(currentId);
+  });
+
+  it("shows empty state without animation when the only photo is deleted", async () => {
+    mockFetch([makePhoto(1)], {
+      ...mockSettings,
+      transition_type: "crossfade",
+    });
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    expect(getCurrentMediaId()).toBe(1);
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: 1 } });
+    });
+
+    // No animation — playlist is now empty
+    expect(document.querySelector(".z-0 [data-media-id]")).toBeNull();
+    expect(document.querySelector(".anim-crossfade-out")).toBeNull();
+
+    // Should show the empty state message
+    expect(screen.getByText("No photos to display")).toBeInTheDocument();
+  });
+
+  it("immediately clears prev media on delete when transition is none", async () => {
+    mockFetch([makePhoto(1), makePhoto(2), makePhoto(3)], {
+      ...mockSettings,
+      transition_type: "none",
+    });
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const idBefore = getCurrentMediaId()!;
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: idBefore } });
+    });
+
+    // With "none" transition, the cleanup effect should immediately clear prev media
+    // No prev slide layer should remain
+    expect(document.querySelector(".z-0 [data-media-id]")).toBeNull();
+
+    // Current slide should have changed to a different photo
+    expect(getCurrentMediaId()).not.toBe(idBefore);
+  });
+
+  it("uses forward slide animation when current photo is deleted with slide transition", async () => {
+    mockFetch([makePhoto(1), makePhoto(2), makePhoto(3)], {
+      ...mockSettings,
+      transition_type: "slide",
+    });
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const idBefore = getCurrentMediaId()!;
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: idBefore } });
+    });
+
+    // Should use forward slide animation (not backward)
+    expect(document.querySelector(".z-0.anim-slide-out-fwd")).toBeTruthy();
+    expect(document.querySelector(".z-10.anim-slide-in-fwd")).toBeTruthy();
+  });
+
   it("always uses CSS blur for photo backgrounds (ignores blur_filename)", async () => {
     const photo = { ...makePhoto(1), blur_filename: "blur_abc.jpg" };
     mockFetch([photo]);

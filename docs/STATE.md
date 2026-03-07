@@ -79,6 +79,14 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
 ## Recent Changes
 
+### Animated Transition on Current Photo Delete (2026-03-07)
+
+Deleting the currently-displayed slideshow photo now triggers a smooth transition animation (crossfade/slide) instead of an abrupt jump. Previously, `prevMedia` was derived from a playlist index — after deletion removed the item from the playlist, the index was stale and no animation could play.
+
+- **SlideshowPage**: `prevIndex` (number) replaced with `prevMedia` (Media object). Navigation and delete handlers now capture the actual Media object before mutating the playlist.
+- **Delete handler**: When `currentWasDeleted`, captures the deleted item as `prevMedia` and triggers forward animation before updating playlist state.
+- **Tests**: 6 new tests — animated crossfade on delete, cleanup after animationend, slide transition direction on delete, no animation on non-current delete, empty state on last item delete, immediate cleanup with "none" transition.
+
 ### Live Modal Updates + Jump Button Fixes (2026-03-06)
 
 Modal now receives live WebSocket updates during video processing — progress animation updates in real-time instead of staying frozen at the state when the modal was opened. Jump-to-slideshow button auto-enables when processing completes while modal is open. Removed sticky focus highlight on jump button.
