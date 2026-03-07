@@ -13,7 +13,7 @@ export default function SlideshowPage() {
     playlist: [],
     currentIndex: 0,
   });
-  const [prevIndex, setPrevIndex] = useState<number | null>(null);
+  const [prevMedia, setPrevMedia] = useState<Media | null>(null);
   const [animating, setAnimating] = useState(false);
   const [slideForward, setSlideForward] = useState(true);
   const [paused, setPaused] = useState(false);
@@ -80,8 +80,6 @@ export default function SlideshowPage() {
   }, [mediaList, settings, shuffleArray]);
 
   const currentMedia = playlist[currentIndex] ?? null;
-  const prevMedia =
-    prevIndex !== null ? playlist[prevIndex] ?? null : null;
 
   // ─── Navigation ──────────────────────────────────────────────
 
@@ -90,7 +88,7 @@ export default function SlideshowPage() {
       if (!playlist.length) return;
       if (next === currentIndex) return; // Single item or same slide — no transition
       waitingForVideo.current = false;
-      setPrevIndex(currentIndex);
+      setPrevMedia(playlistRef.current[currentIndex]);
       setSlide((prev) => ({ ...prev, currentIndex: next }));
       setAnimating(true);
     },
@@ -245,6 +243,10 @@ export default function SlideshowPage() {
             newIndex = 0;
           } else if (currentWasDeleted) {
             newIndex = newIndex % newPlaylist.length;
+            // Animate the deleted slide out like a normal forward transition
+            setPrevMedia(prev.playlist[prev.currentIndex]);
+            setSlideForward(true);
+            setAnimating(true);
           }
           return { playlist: newPlaylist, currentIndex: newIndex };
         });
@@ -372,7 +374,7 @@ export default function SlideshowPage() {
   useEffect(() => {
     if (animating && transitionStyle === "none") {
       setAnimating(false);
-      setPrevIndex(null);
+      setPrevMedia(null);
     }
   }, [animating, transitionStyle]);
 
@@ -434,7 +436,7 @@ export default function SlideshowPage() {
         }`}
         onAnimationEnd={() => {
           setAnimating(false);
-          setPrevIndex(null);
+          setPrevMedia(null);
         }}
       >
         {currentMedia && (
