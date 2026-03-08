@@ -23,7 +23,7 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 - **Media API**: upload (multi-file), list (paginated), get, delete, bulk delete with file cleanup
 - **Settings API**: get with auto-create defaults, partial update
 - **Video processing**: two-phase upload — fast save + background ffmpeg transcode in thread
-- **HEIC support**: `pillow-heif` plugin registers HEIC/HEIF format, converts to JPEG on upload
+- **HEIC support**: `pillow-heif` plugin registers HEIC/HEIF format, converts to JPEG on upload (stored as `.jpg`)
 - **Smart transcoding**: only non-browser codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
 - **Progress tracking**: ffmpeg `-progress pipe:1` parsed in real-time, broadcast via WebSocket
 - **Duplicate detection**: SHA-256 content hash, returns existing item if duplicate
@@ -55,24 +55,9 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 - **Combined slide state** — `{playlist, currentIndex}` in single useState to prevent flash when playlist changes
 - **Tap zones over swipe gestures** — simpler, more reliable on touch screens
 - **VP8/WebM for E2E video tests** — H.264 doesn't play in headless Chromium (Playwright Docker)
-- **CSS blur for slideshow backgrounds** — real-time CSS blur on both photos and videos (experiment branch). Backend still generates pre-rendered blur images but frontend doesn't use them.
+- **CSS blur for slideshow backgrounds** — real-time CSS blur on both photos and videos. No server-side blur generation.
 
 ---
-
-## Experiment Branch: `experiment/smaller-display-css-blur`
-
-**Not merged to main.** Two changes being tested:
-
-### 1. Display size reduced: 1920 → 1024x600
-- `DISPLAY_MAX_SIZE = 1920` replaced with `DISPLAY_MAX_WIDTH = 1024` / `DISPLAY_MAX_HEIGHT = 600`
-- Images/videos now fit within a 1024x600 bounding box (matching RPi touchscreen resolution)
-- Affects: `config.py`, `image.py`, `video.py`, `media.py` router
-
-### 2. CSS blur instead of pre-rendered blur images
-- Slideshow uses real-time CSS `blur(30px)` for both photos and videos
-- Photos: background `<img>` with same src as foreground, CSS blurred
-- Videos: background `<video>` element plays in sync, CSS blurred (dynamic blur that moves with the video)
-- Server-side blur pipeline fully removed: no `blur_filename` field, no `/uploads/blur/` endpoint, no `BLUR_DIR`/`BLUR_SIZE` config
 
 ---
 
@@ -105,14 +90,6 @@ Allow full user interaction with media in any processing state. Previously, proc
 - **Backend**: `POST /api/media/slideshow/jump` rejects non-ready media with 400
 - **Tests**: 19 new tests (frontend + backend)
 
-### Blur Background Size Increase (2026-03-06)
-
-Pre-rendered blur backgrounds were 64px — too small, all looked identical (vague color blobs). Increased to 320px with proportionally scaled blur radius (10→30) so each photo has a visually distinct background.
-
-- **Config**: `BLUR_SIZE` 64→320, blur radius 10→30 in both `image.py` and `video.py`
-- **Migration**: `scripts/regenerate-blur.py` regenerates blur images for existing media
-- **File size impact**: Minimal — 320px blurred JPEGs at quality 60 are still ~10-30KB
-
 ### WebSocket Robustness + Kiosk Debugging (2026-03-06)
 
 Slideshow page froze on Pi after using jump feature. Root cause unconfirmed (likely Chromium renderer-level GPU issue), but backend WS had reliability bugs.
@@ -133,7 +110,7 @@ Cross-device "Show in slideshow" feature. From any device's gallery modal, press
 
 Four universal improvements to eliminate slideshow sluggishness on all clients:
 
-1. **Blur backgrounds**: Slideshow uses real-time CSS `blur(30px)` — for videos this gives dynamic blur that moves with the content. Server-side blur pipeline fully removed.
+1. **CSS blur backgrounds**: Slideshow uses real-time CSS `blur(30px)` — for videos this gives dynamic blur that moves with the content. Replaced server-side pre-rendered blur pipeline.
 2. **H.264 Main profile + level 4.0**: All ffmpeg encode commands now use `-profile:v main -level 4.0` instead of defaulting to High profile. Main profile is universally supported and hardware-decoded efficiently by RPi VideoCore VI.
 3. **Cache headers**: All `/uploads/*` routes now return `Cache-Control: public, max-age=31536000, immutable`. Filenames contain UUIDs so this is safe. Second loop through playlist loads from browser disk cache.
 4. **Video preloading**: Next video is preloaded via hidden `<video preload="auto">` element alongside existing photo preloading. Discarded on manual skip.
@@ -235,10 +212,9 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 
 ---
 
----
-
 ## Known Limitations / Future Work
 
+- [ ] **Originals are re-encoded on upload** — `process_image()` decodes, EXIF-rotates, and re-saves images (quality 95). HEIC files are converted to JPEG. This loses the original raw bytes, embedded data (Live Photo motion, depth maps), and introduces generation loss. Future: save raw bytes as the original, generate a separate browser-friendly display version.
 - **No user auth** — single-user photo frame, no login needed
 - **No image editing** — crop, rotate, filters not implemented
 - **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale

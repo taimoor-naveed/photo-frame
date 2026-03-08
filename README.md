@@ -187,7 +187,8 @@ All tests run inside Docker — no host dependencies needed.
 | `media_added` | Server -> Client | New media uploaded |
 | `media_deleted` | Server -> Client | Media deleted |
 | `media_processing_complete` | Server -> Client | Video transcode finished |
-| `media_processing_progress` | Server -> Client | Transcode progress (0-100%) |
+| `media_processing_progress` | Server -> Client | Transcode/scaling progress (0-100%) |
+| `media_processing_error` | Server -> Client | Processing failed |
 | `settings_changed` | Server -> Client | Settings updated |
 | `slideshow_jump` | Server -> Client | Jump to specific media |
 

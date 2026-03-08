@@ -15,7 +15,6 @@
 | `GET`    | `/uploads/thumbnails/{filename}`  | Serve thumbnail                       |
 | `GET`    | `/uploads/transcoded/{filename}`  | Serve transcoded video (H.264)        |
 | `GET`    | `/uploads/display/{filename}`     | Serve display-optimized media (1024x600)|
-| `GET`    | `/uploads/blur/{filename}`        | Serve pre-rendered blur background    |
 
 ### Settings
 | Method | Endpoint         | Description            |
@@ -29,7 +28,7 @@
 - `media_deleted` — payload: `{"id": <media_id>}`
 - `media_processing_progress` — payload: `{"id": <media_id>, "progress": 0-100}`
 - `media_processing_complete` — payload: full media object (with `processing_status: "ready"`)
-- `media_processing_error` — payload: `{"id": <media_id>, "error": "<message>"}`
+- `media_processing_error` — payload: `{"id": <media_id>}`
 - `slideshow_jump` — payload: `{"id": <media_id>}` (jump all slideshows to this media)
 - `settings_changed` — payload: full settings object
 
@@ -52,7 +51,7 @@ media:
   thumb_filename TEXT NOT NULL        -- thumbnail filename in thumbnails/
   transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
   processing_status TEXT NOT NULL DEFAULT 'ready'  -- 'processing' | 'ready' | 'error'
-  display_filename TEXT               -- display-optimized file (1024x600 max), NULL if not needed
+  display_filename TEXT               -- display-optimized file (1024x600 max), NULL if within bounds
   content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection
   uploaded_at DATETIME NOT NULL       -- UTC
 
@@ -69,10 +68,10 @@ No migrations — clean-slate deploy. Tables auto-created via `Base.metadata.cre
 ### Photo Upload
 1. Validate extension (jpg, jpeg, png, webp, heic) + mime type
 2. `ImageOps.exif_transpose()` — auto-rotate to correct orientation
-3. Generate thumbnail (300px max dimension, preserve aspect ratio)
-4. Generate display-optimized JPEG if image exceeds 1024x600 bounding box
-5. Generate pre-rendered blur background (~320px, Gaussian blur radius 30)
-6. Save: rotated original → `data/originals/`, thumbnail → `data/thumbnails/`, display → `data/display/`, blur → `data/blur/`
+3. Convert HEIC → JPEG; convert RGBA/palette → RGB
+4. Save processed original → `data/originals/` (EXIF-rotated, re-encoded at quality 95; **note:** raw bytes are not preserved — see future work)
+5. Generate thumbnail (300px max dimension, JPEG quality 85)
+6. Generate display-optimized JPEG if image exceeds 1024x600 bounding box → `data/display/`
 7. Extract dimensions from rotated image
 8. Insert DB row, broadcast `media_added` via WebSocket
 
@@ -83,15 +82,23 @@ No migrations — clean-slate deploy. Tables auto-created via `Base.metadata.cre
 3. Save original → `data/originals/`
 4. `ffprobe` — extract duration, resolution, codec
 5. Generate thumbnail at 25% → `data/thumbnails/`
-6. Generate pre-rendered blur background from thumbnail (~320px, Gaussian blur radius 30)
-7. Insert DB row with `processing_status="processing"` (or `"ready"` if no transcode/scaling needed)
-8. Broadcast `media_added` via WebSocket
+6. Insert DB row with `processing_status="processing"` if transcode/scaling needed, `"ready"` otherwise
+7. Broadcast `media_added` via WebSocket
 
 **Phase 2 (background thread — if transcode or display scaling needed):**
 1. `ffmpeg` transcode to H.264 MP4 (capped at 1024x600) with `-progress pipe:1`
 2. Parse progress, broadcast `media_processing_progress` events (throttled every 3%)
 3. On success: update DB to `"ready"`, broadcast `media_processing_complete`
 4. On failure: update DB to `"error"`, broadcast `media_processing_error`
+
+### Future: Preserve Original Uploads
+
+When implementing raw-byte preservation, watch for these gotchas discovered during a prior attempt:
+
+- **`displayUrl()` null safety**: If originals are raw bytes (possibly HEIC, un-rotated JPEG), the frontend must always have a browser-friendly display version to show. But `display_filename` is null during video background processing. `displayUrl()` needs a fallback to `originalUrl()` for that window, or display version must be set before the response.
+- **Small video re-encoding**: Don't run all browser-compatible videos through ffmpeg just to generate a display version. Small videos (within 1024x600) don't need re-encoding — it's expensive and introduces quality loss.
+- **Width/height vs raw file**: After EXIF transpose, DB dimensions reflect the display orientation, but raw bytes have pre-rotation pixel dimensions. This is correct for display but may confuse anyone inspecting the original file.
+- **All videos start as "processing"**: If every video needs a display version generated, they all start as `processing_status="processing"`. This changes frontend behavior (slideshow skips processing items).
 
 ### Supported Formats
 - **Photos**: .jpg, .jpeg, .png, .webp, .heic
@@ -115,9 +122,7 @@ Body scroll is locked while the modal is open. Escape is suppressed when the Con
 
 ## Display — Blur Background Effect
 
-Real-time CSS `blur(30px)` applied to a scaled-up copy of the media element. For photos, a background `<img>` with the same src is CSS-blurred. For videos, a second `<video>` element plays in sync and is CSS-blurred (dynamic blur that moves with the video).
-
-Backend still generates pre-rendered blur images (~320px blurred JPEGs) at upload time and serves them from `/uploads/blur/`, but the slideshow frontend currently does not use them (CSS blur is used instead). The blur generation and endpoints are retained for potential future use.
+Real-time CSS `blur(30px)` applied to a scaled-up copy of the media element. For photos, a background `<img>` with the same src is CSS-blurred. For videos, a second `<video>` element plays in sync and is CSS-blurred (dynamic blur that moves with the video). No server-side blur generation — all blur is CSS-only.
 
 ```
 ┌─────────────────────────────┐

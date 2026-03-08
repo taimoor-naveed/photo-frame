@@ -59,7 +59,7 @@ def _transcode_in_background(
             if media:
                 media.processing_status = "ready"
                 media.transcoded_filename = transcoded_filename
-                media.display_filename = transcoded_filename  # transcode already scales to 1920
+                media.display_filename = transcoded_filename  # transcode already scales to 1024x600
                 db.commit()
                 db.refresh(media)
                 _broadcast(loop, {
