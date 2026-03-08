@@ -44,6 +44,3 @@ def serve_display(filename: str):
     return _serve_file(config.DISPLAY_DIR, filename)
 
 
-@router.get("/blur/{filename}")
-def serve_blur(filename: str):
-    return _serve_file(config.BLUR_DIR, filename)

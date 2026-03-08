@@ -5,8 +5,6 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from PIL import Image, ImageFilter
-
 from app import config
 
 
@@ -77,23 +75,6 @@ def generate_video_thumbnail(
         check=True,
     )
     return thumb_path
-
-
-def generate_blur_from_thumbnail(
-    thumb_path: Path,
-    blur_filename: str,
-    blur_dir: Path | None = None,
-) -> Path:
-    """Generate a tiny pre-blurred JPEG from a thumbnail for slideshow background."""
-    if blur_dir is None:
-        blur_dir = config.BLUR_DIR
-
-    img = Image.open(thumb_path)
-    img.thumbnail((config.BLUR_SIZE, config.BLUR_SIZE), Image.LANCZOS)
-    img = img.filter(ImageFilter.GaussianBlur(radius=30))
-    blur_path = blur_dir / blur_filename
-    img.save(blur_path, "JPEG", quality=60)
-    return blur_path
 
 
 def needs_transcode(codec: str) -> bool:
@@ -203,7 +184,6 @@ def save_video_original(
     original_name: str,
     originals_dir: Path | None = None,
     thumbnails_dir: Path | None = None,
-    blur_dir: Path | None = None,
 ) -> dict:
     """Phase 1: Save original file, extract metadata, generate thumbnail. Fast (no transcode).
 
@@ -217,8 +197,6 @@ def save_video_original(
         originals_dir = config.ORIGINALS_DIR
     if thumbnails_dir is None:
         thumbnails_dir = config.THUMBNAILS_DIR
-    if blur_dir is None:
-        blur_dir = config.BLUR_DIR
 
     ext = Path(original_name).suffix.lower()
     filename = f"{uuid.uuid4()}{ext}"
@@ -238,13 +216,6 @@ def save_video_original(
         # Generate thumbnail
         generate_video_thumbnail(original_path, thumb_filename, thumbnails_dir)
         created_files.append(thumbnails_dir / thumb_filename)
-
-        # Generate blur background from thumbnail
-        blur_filename = f"blur_{uuid.uuid4()}.jpg"
-        generate_blur_from_thumbnail(
-            thumbnails_dir / thumb_filename, blur_filename, blur_dir,
-        )
-        created_files.append(blur_dir / blur_filename)
     except (subprocess.CalledProcessError, ValueError, OSError, KeyError) as exc:
         # Clean up any partially written files
         for f in created_files:
@@ -259,7 +230,6 @@ def save_video_original(
         "file_size": file_size,
         "duration": meta["duration"],
         "codec": meta["codec"],
-        "blur_filename": blur_filename,
     }
 
 

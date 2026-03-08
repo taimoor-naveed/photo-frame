@@ -187,7 +187,6 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 file_size=info["file_size"],
                 thumb_filename=info["thumb_filename"],
                 display_filename=info.get("display_filename"),
-                blur_filename=info.get("blur_filename"),
                 processing_status="ready",
                 content_hash=content_hash,
             )
@@ -220,7 +219,6 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 duration=info["duration"],
                 codec=info["codec"],
                 thumb_filename=info["thumb_filename"],
-                blur_filename=info.get("blur_filename"),
                 processing_status="processing" if (require_transcode or needs_display_scale_check) else "ready",
                 content_hash=content_hash,
             )
@@ -324,8 +322,6 @@ async def bulk_delete_media(body: BulkDeleteRequest, db: Session = Depends(get_d
             (config.TRANSCODED_DIR / media.transcoded_filename).unlink(missing_ok=True)
         if media.display_filename:
             (config.DISPLAY_DIR / media.display_filename).unlink(missing_ok=True)
-        if media.blur_filename:
-            (config.BLUR_DIR / media.blur_filename).unlink(missing_ok=True)
 
         db.delete(media)
         deleted.append(media_id)
@@ -358,8 +354,6 @@ async def delete_media(media_id: int, db: Session = Depends(get_db)):
         (config.TRANSCODED_DIR / media.transcoded_filename).unlink(missing_ok=True)
     if media.display_filename:
         (config.DISPLAY_DIR / media.display_filename).unlink(missing_ok=True)
-    if media.blur_filename:
-        (config.BLUR_DIR / media.blur_filename).unlink(missing_ok=True)
 
     db.delete(media)
     db.commit()

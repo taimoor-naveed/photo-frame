@@ -22,7 +22,7 @@ function makePhoto(id: number, name?: string): Media {
     thumb_filename: `thumb_photo${id}.jpg`,
     transcoded_filename: null,
     display_filename: null,
-    blur_filename: null,
+
     processing_status: "ready" as const,
     content_hash: `hash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
@@ -46,7 +46,7 @@ function makeVideo(
     thumb_filename: `thumb_video${id}.jpg`,
     transcoded_filename: null,
     display_filename: null,
-    blur_filename: null,
+
     processing_status: status,
     content_hash: `vhash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
@@ -858,8 +858,8 @@ describe("SlideshowPage", () => {
     expect(document.querySelector(".z-10.anim-slide-in-fwd")).toBeTruthy();
   });
 
-  it("always uses CSS blur for photo backgrounds (ignores blur_filename)", async () => {
-    const photo = { ...makePhoto(1), blur_filename: "blur_abc.jpg" };
+  it("always uses CSS blur for photo backgrounds", async () => {
+    const photo = makePhoto(1);
     mockFetch([photo]);
 
     render(

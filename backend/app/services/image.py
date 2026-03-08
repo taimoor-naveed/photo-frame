@@ -3,7 +3,7 @@ import uuid
 from pathlib import Path
 
 import pillow_heif
-from PIL import Image, ImageFilter, ImageOps
+from PIL import Image, ImageOps
 
 from app import config
 
@@ -16,7 +16,6 @@ def process_image(
     originals_dir: Path | None = None,
     thumbnails_dir: Path | None = None,
     display_dir: Path | None = None,
-    blur_dir: Path | None = None,
 ) -> dict:
     """Process an uploaded image: EXIF auto-rotate, save original, generate thumbnail + display version.
 
@@ -32,9 +31,6 @@ def process_image(
         thumbnails_dir = config.THUMBNAILS_DIR
     if display_dir is None:
         display_dir = config.DISPLAY_DIR
-    if blur_dir is None:
-        blur_dir = config.BLUR_DIR
-    blur_dir.mkdir(parents=True, exist_ok=True)
 
     ext = Path(original_name).suffix.lower()
     if ext == ".heic":
@@ -83,14 +79,6 @@ def process_image(
             display_img.save(display_path, "JPEG", quality=90)
             created_files.append(display_path)
 
-        # Generate pre-rendered blur background
-        blur_filename = f"blur_{uuid.uuid4()}.jpg"
-        blur_img = img.copy()
-        blur_img.thumbnail((config.BLUR_SIZE, config.BLUR_SIZE), Image.LANCZOS)
-        blur_img = blur_img.filter(ImageFilter.GaussianBlur(radius=30))
-        blur_path = blur_dir / blur_filename
-        blur_img.save(blur_path, "JPEG", quality=60)
-        created_files.append(blur_path)
     except (Image.UnidentifiedImageError, Image.DecompressionBombError, OSError, SyntaxError) as exc:
         # Clean up any partially written files
         for f in created_files:
@@ -104,5 +92,4 @@ def process_image(
         "height": height,
         "file_size": file_size,
         "display_filename": display_filename,
-        "blur_filename": blur_filename,
     }

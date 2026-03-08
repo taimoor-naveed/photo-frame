@@ -19,13 +19,11 @@ def tmp_dirs(tmp_path):
     thumbnails = tmp_path / "thumbnails"
     transcoded = tmp_path / "transcoded"
     display = tmp_path / "display"
-    blur = tmp_path / "blur"
     originals.mkdir()
     thumbnails.mkdir()
     transcoded.mkdir()
     display.mkdir()
-    blur.mkdir()
-    return {"originals": originals, "thumbnails": thumbnails, "transcoded": transcoded, "display": display, "blur": blur}
+    return {"originals": originals, "thumbnails": thumbnails, "transcoded": transcoded, "display": display}
 
 
 @pytest.fixture()
@@ -51,12 +49,10 @@ def client(tmp_path, monkeypatch):
     thumbnails = tmp_path / "thumbnails"
     transcoded = tmp_path / "transcoded"
     display = tmp_path / "display"
-    blur = tmp_path / "blur"
     originals.mkdir()
     thumbnails.mkdir()
     transcoded.mkdir()
     display.mkdir()
-    blur.mkdir()
 
     # All services/routers read from app.config at call time,
     # so patching config is sufficient
@@ -65,7 +61,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "THUMBNAILS_DIR", thumbnails)
     monkeypatch.setattr(config, "TRANSCODED_DIR", transcoded)
     monkeypatch.setattr(config, "DISPLAY_DIR", display)
-    monkeypatch.setattr(config, "BLUR_DIR", blur)
 
     # Patch database
     engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
