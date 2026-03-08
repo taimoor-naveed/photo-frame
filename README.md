@@ -111,7 +111,7 @@ photo-frame/
 │       ├── hooks/          # usePhotos, useSettings, useWebSocket
 │       └── api/            # Typed API client
 ├── e2e/                    # Playwright tests (desktop + mobile viewports)
-├── scripts/                # Test runners, deployment, migrations
+├── scripts/                # Test runners, deployment
 ├── docs/                   # SPEC.md (contract), STATE.md (progress)
 ├── docker-compose.yml      # Development
 └── docker-compose.prod.yml # Production

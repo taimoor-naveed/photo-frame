@@ -53,7 +53,6 @@ media:
   transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
   processing_status TEXT NOT NULL DEFAULT 'ready'  -- 'processing' | 'ready' | 'error'
   display_filename TEXT               -- display-optimized file (1024x600 max), NULL if not needed
-  blur_filename TEXT                  -- pre-rendered blur background (~320px JPEG), NULL if not generated
   content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection
   uploaded_at DATETIME NOT NULL       -- UTC
 
@@ -63,8 +62,7 @@ settings:
   transition_type     TEXT NOT NULL DEFAULT 'crossfade'
 ```
 
-No migrations — tables auto-created via `Base.metadata.create_all()`.
-New columns added via idempotent `ALTER TABLE` in `database.py`.
+No migrations — clean-slate deploy. Tables auto-created via `Base.metadata.create_all()`.
 
 ## Media Pipeline
 

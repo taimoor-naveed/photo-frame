@@ -40,7 +40,7 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 | Runtime config    | `backend/app/config.py`      |
 | DB schema         | `backend/app/models.py`      |
 | API routes        | `backend/app/routers/*.py`   |
-| Migrations        | None — auto-create + idempotent ALTER TABLE in `database.py` |
+| Migrations        | None — clean-slate deploy, tables auto-created via `Base.metadata.create_all()` |
 
 ## Non-Negotiables
 
