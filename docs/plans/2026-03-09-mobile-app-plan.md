@@ -363,7 +363,27 @@ def extract_motion_video(data: bytes) -> bytes | None:
 
 ## Phase 3: Upload Pipeline Integration
 
-Wire the Motion Photo extraction into the existing upload endpoint. When an image is uploaded, check for embedded video. If found, extract it and process through the normal video pipeline.
+Wire the Motion Photo extraction into the existing upload endpoint. When an image is uploaded and detected as a Motion Photo, **skip the image pipeline entirely** and process only the extracted video. The JPEG is not saved — only the video goes into the system.
+
+### How the upload flow changes
+
+**Current flow (all images):**
+```
+JPEG received → process_image() → save photo record → done
+```
+
+**New flow (images with Motion Photo check):**
+```
+JPEG received → extract_motion_video(content)
+  ├─ returns video bytes → save_video_original(video_bytes) → save video record → done
+  └─ returns None → process_image(content) → save photo record → done (unchanged)
+```
+
+The Motion Photo check happens **before** `process_image()`. If a video is found, we never call `process_image()` — the JPEG is discarded and only the video is saved.
+
+**Fallback:** If video extraction succeeds but `save_video_original()` fails (e.g., ffprobe can't parse it), fall back to treating the file as a normal image — call `process_image()` so the user at least gets the still photo.
+
+---
 
 ### Task 3.1: Write integration tests for Motion Photo upload
 
@@ -378,12 +398,13 @@ These tests upload real files through the API and verify the correct records are
 
 | Test | Input | Expected |
 |------|-------|----------|
-| Samsung Motion Photo | Valid JPEG + marker + real MP4 | 200, returns 2 items: 1 photo + 1 video |
-| Pixel Motion Photo | Valid JPEG + XMP offset + real MP4 | 200, returns 2 items: 1 photo + 1 video |
-| Corrupt embedded video | Valid JPEG + Samsung marker + garbage bytes | 200, returns 1 item (photo only), video extraction fails gracefully |
-| Regular JPEG (regression) | Valid JPEG, no Motion Photo | 200, returns 1 item (photo only) |
-| Duplicate Motion Photo | Same file uploaded twice | Second upload returns same records (content_hash dedup) |
-| Video named with _live suffix | Any Motion Photo | Extracted video `original_name` contains `_live` |
+| Samsung Motion Photo | Valid JPEG + marker + real MP4 | 200, returns 1 item: video only (no photo) |
+| Pixel Motion Photo | Valid JPEG + XMP offset + real MP4 | 200, returns 1 item: video only (no photo) |
+| Corrupt embedded video → fallback to image | Valid JPEG + Samsung marker + garbage bytes | 200, returns 1 item: photo (fallback since video extraction failed) |
+| Regular JPEG (regression) | Valid JPEG, no Motion Photo | 200, returns 1 item: photo |
+| Duplicate Motion Photo | Same file uploaded twice | Second upload returns same video record (content_hash dedup) |
+| Video original_name has _live suffix | Any Motion Photo | `original_name` contains `_live` |
+| No JPEG saved for Motion Photo | Samsung Motion Photo | Only video files on disk, no photo files for this upload |
 
 ```python
 # backend/tests/integration/test_motion_photo_upload.py
@@ -443,31 +464,31 @@ def pixel_motion_photo(real_jpeg_bytes, real_tiny_mp4) -> bytes:
 
 
 class TestMotionPhotoUpload:
-    def test_samsung_creates_photo_and_video(self, client, samsung_motion_photo):
+    def test_samsung_creates_video_only(self, client, samsung_motion_photo):
+        """Motion Photo → only the video is saved, no photo record."""
         resp = client.post(
             "/api/media",
             files=[("files", ("IMG_20260309.jpg", samsung_motion_photo, "image/jpeg"))],
         )
         assert resp.status_code == 200
         items = resp.json()
-        assert len(items) == 2
-        types = {item["media_type"] for item in items}
-        assert types == {"photo", "video"}
-        video = next(i for i in items if i["media_type"] == "video")
-        assert "_live" in video["original_name"]
+        assert len(items) == 1
+        assert items[0]["media_type"] == "video"
+        assert "_live" in items[0]["original_name"]
 
-    def test_pixel_creates_photo_and_video(self, client, pixel_motion_photo):
+    def test_pixel_creates_video_only(self, client, pixel_motion_photo):
+        """Pixel Motion Photo → only the video is saved."""
         resp = client.post(
             "/api/media",
             files=[("files", ("PXL_20260309.jpg", pixel_motion_photo, "image/jpeg"))],
         )
         assert resp.status_code == 200
         items = resp.json()
-        assert len(items) == 2
-        types = {item["media_type"] for item in items}
-        assert types == {"photo", "video"}
+        assert len(items) == 1
+        assert items[0]["media_type"] == "video"
 
-    def test_corrupt_video_still_saves_photo(self, client, real_jpeg_bytes):
+    def test_corrupt_video_falls_back_to_photo(self, client, real_jpeg_bytes):
+        """Embedded video is garbage → fallback to saving as photo."""
         motion = real_jpeg_bytes + b"MotionPhoto_Data" + b"\x00" * 100
         resp = client.post(
             "/api/media",
@@ -479,6 +500,7 @@ class TestMotionPhotoUpload:
         assert items[0]["media_type"] == "photo"
 
     def test_regular_jpeg_not_affected(self, client, real_jpeg_bytes):
+        """Regular JPEG without Motion Photo markers → photo as usual."""
         resp = client.post(
             "/api/media",
             files=[("files", ("regular.jpg", real_jpeg_bytes, "image/jpeg"))],
@@ -489,6 +511,7 @@ class TestMotionPhotoUpload:
         assert items[0]["media_type"] == "photo"
 
     def test_duplicate_motion_photo(self, client, samsung_motion_photo):
+        """Same Motion Photo uploaded twice → returns same video record."""
         resp1 = client.post(
             "/api/media",
             files=[("files", ("dup.jpg", samsung_motion_photo, "image/jpeg"))],
@@ -520,21 +543,24 @@ class TestMotionPhotoUpload:
 
 1. Add import at top: `from app.services.motion_photo import extract_motion_video`
 
-2. After the image `Media` record is committed and appended to `results` (around line 196), add the Motion Photo extraction block:
+2. In the image processing branch (`if ext in config.ALLOWED_IMAGE_EXTENSIONS:`), **before** calling `process_image()`, check for Motion Photo and redirect to the video pipeline if found:
 
 ```python
-# --- Motion Photo: check for embedded video ---
-video_bytes = extract_motion_video(content)
-if video_bytes:
-    try:
-        video_name = f"{Path(original_name).stem}_live.mp4"
-        video_hash = hashlib.sha256(video_bytes).hexdigest()
-        existing_video = db.query(Media).filter(
-            Media.content_hash == video_hash
-        ).first()
-        if existing_video:
-            results.append(existing_video)
-        else:
+if ext in config.ALLOWED_IMAGE_EXTENSIONS:
+    # --- Check for Motion Photo (embedded video) ---
+    video_bytes = extract_motion_video(content)
+    if video_bytes:
+        # Motion Photo detected: skip image pipeline, process as video only
+        try:
+            video_name = f"{Path(original_name).stem}_live.mp4"
+            video_hash = hashlib.sha256(video_bytes).hexdigest()
+            existing_video = db.query(Media).filter(
+                Media.content_hash == video_hash
+            ).first()
+            if existing_video:
+                results.append(existing_video)
+                continue
+
             info_v = save_video_original(video_bytes, video_name)
             require_transcode_v = needs_transcode(info_v["codec"])
             needs_scale_v = (
@@ -587,24 +613,33 @@ if video_bytes:
                     args=(video_media.id, original_path_v, info_v["duration"], loop),
                     daemon=True,
                 ).start()
-    except Exception:
-        logger.warning(
-            "Failed to extract Motion Photo video from '%s', image saved successfully",
-            original_name,
-            exc_info=True,
-        )
+
+            continue  # Skip image pipeline — video saved successfully
+        except Exception:
+            logger.warning(
+                "Motion Photo video extraction failed for '%s', falling back to image",
+                original_name,
+                exc_info=True,
+            )
+            # Fall through to process_image() below
+
+    # --- Normal image processing (also fallback for failed Motion Photo extraction) ---
+    try:
+        info = process_image(content, original_name)
+    # ... rest of existing image handling unchanged ...
 ```
 
 **Key design decisions:**
-- **Non-fatal:** Video extraction failure is caught and logged. Image upload always succeeds.
-- **Duplicate detection:** Extracted video gets its own `content_hash` (SHA-256 of video bytes only). Same Motion Photo uploaded twice → both image and video deduplicated.
-- **Naming:** Extracted video named `{stem}_live.mp4` for easy identification.
-- **Transcoding:** Extracted video goes through the same transcode/scale pipeline as regular video uploads.
+- **Video only:** Motion Photo JPEG is NOT saved as an image. Only the extracted video enters the system.
+- **Fallback:** If video extraction fails (corrupt video, ffprobe error), falls through to `process_image()` so the user at least gets the still photo.
+- **`continue` after success:** Skips the image processing block entirely when video is saved.
+- **Duplicate detection:** Uses SHA-256 of the extracted video bytes as `content_hash`. Same Motion Photo uploaded twice → deduplicated.
+- **Naming:** `{original_stem}_live.mp4` so users can identify the source.
 
 **Run:** `docker compose exec backend python -m pytest tests/integration/test_motion_photo_upload.py -v`
 **Expected:** All PASS.
 
-**Commit:** `feat: extract Motion Photo video during image upload`
+**Commit:** `feat: extract Motion Photo video during image upload (video-only, no image saved)`
 
 ---
 
@@ -685,7 +720,7 @@ Deploy the updated backend (with Motion Photo extraction) to the production serv
 
 **Run:** `./scripts/deploy.sh`
 
-**Verify:** Upload a Motion Photo JPEG from Android browser → check gallery shows both photo and video.
+**Verify:** Upload a Motion Photo JPEG from Android browser → check gallery shows it as a video (not a photo).
 
 ### Task 5.2: Test iOS Shortcut against production
 
@@ -725,11 +760,12 @@ Phase 5 is deployment.
 
 | Scenario | What happens | Mitigation |
 |----------|-------------|-----------|
-| Motion Photo with corrupt embedded video | `save_video_original()` raises `ValueError` (ffprobe fails) | Caught by try/except, logged, image still saved |
-| Motion Photo where XMP offset is slightly wrong | Video bytes start mid-frame | ffprobe may still parse it; if not, same as corrupt case |
-| Samsung newer SEF trailer format | `detect_motion_photo()` returns `None` | Video not extracted. Logged. Can add support later when we have a test file |
-| Very large Motion Photo (close to 200MB limit) | Image + embedded video both within limit | The 200MB limit applies to the uploaded file. A 3s video adds ~5-15MB. Not a concern. |
-| Same Motion Photo uploaded from Android browser AND as regular JPEG from desktop | Two photo records with different `content_hash` (Motion Photo JPEG includes video bytes) | Acceptable — the files are genuinely different. User can delete the duplicate manually. |
+| Motion Photo with corrupt embedded video | `save_video_original()` raises `ValueError` (ffprobe fails) | Falls back to saving as a normal photo via `process_image()` |
+| Motion Photo where XMP offset is slightly wrong | Video bytes start mid-frame | ffprobe may still parse it; if not, fallback to photo |
+| Samsung newer SEF trailer format | `detect_motion_photo()` returns `None` | Saved as normal photo. Can add SEF support later when we have a test file |
+| Very large Motion Photo (close to 200MB limit) | Upload accepted, video extracted | The 200MB limit applies to the whole uploaded file. A 3s video adds ~5-15MB. Not a concern. |
+| Duplicate Motion Photo uploaded twice | Second upload returns existing video record | `content_hash` of extracted video bytes catches the duplicate |
+| Regular JPEG uploaded (no Motion Photo) | `extract_motion_video()` returns `None` | Normal image pipeline, completely unchanged |
 | iOS Shortcut can't connect to home-pc | HTTP request fails | Shortcut shows native iOS error. User retries when on home network. |
 | iOS Shortcut: Live Photo has no video component | "Get component" step returns nothing | Shortcut skips to next item or shows error. Non-fatal. |
-| HEIC Motion Photo (not JPEG) | Detection still works — XMP markers are format-agnostic | Already handled: backend allows `.heic` uploads, Pillow decodes them, XMP regex search works on raw bytes regardless of container format |
+| HEIC Motion Photo (not JPEG) | Detection still works — XMP markers are format-agnostic | Already handled: backend allows `.heic` uploads, XMP regex search works on raw bytes regardless of container format |
