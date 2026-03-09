@@ -4,7 +4,10 @@ Motion Photos are JPEGs with an embedded video appended after the image data.
 This module detects the presence and format of the embedded video.
 """
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 # --- Compiled patterns ---
 
@@ -60,3 +63,28 @@ def detect_motion_photo(data: bytes) -> dict | None:
                     return {"format": "pixel", "video_offset": video_start}
 
     return None
+
+
+def extract_motion_video(data: bytes) -> bytes | None:
+    """Extract embedded video from Motion Photo data.
+
+    Returns the video bytes, or None if no valid Motion Photo is detected.
+    """
+    info = detect_motion_photo(data)
+    if info is None:
+        return None
+
+    video_bytes = data[info["video_offset"]:]
+
+    if len(video_bytes) < _MIN_VIDEO_SIZE:
+        logger.warning(
+            "Motion Photo video too small (%d bytes), skipping", len(video_bytes)
+        )
+        return None
+
+    logger.info(
+        "Extracted %d-byte %s Motion Photo video",
+        len(video_bytes),
+        info["format"],
+    )
+    return video_bytes
