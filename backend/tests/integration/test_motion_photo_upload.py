@@ -138,6 +138,79 @@ def test_regular_jpeg_unchanged(client):
 # ─── Duplicate Motion Photo ──────────────────────────────────
 
 
+def test_pixel_newer_motion_photo_returns_video(client, tmp_path):
+    """Pixel newer-format Motion Photo (MotionPhoto + Item:Length) upload: returns 1 video."""
+    jpeg_bytes = _make_jpeg()
+    mp4_bytes = _make_tiny_mp4(tmp_path)
+
+    # Build Pixel newer format with MotionPhoto + Item:Length XMP
+    video_length = len(mp4_bytes)
+    xmp = (
+        b'GCamera:MotionPhoto="1" '
+        b'GCamera:MotionPhotoVersion="1"'
+    )
+    item_length_xmp = (
+        b'Item:Mime="video/mp4" '
+        b'Item:Length="' + str(video_length).encode() + b'"'
+    )
+    # Combine XMP payload
+    full_xmp = xmp + b" " + item_length_xmp
+    xmp_payload = b"http://ns.adobe.com/xap/1.0/\x00" + full_xmp
+    xmp_length = len(xmp_payload) + 2
+    app1 = b"\xff\xe1" + xmp_length.to_bytes(2, "big") + xmp_payload
+    soi = jpeg_bytes[:2]
+    rest = jpeg_bytes[2:]
+    motion_photo = soi + app1 + rest + mp4_bytes
+
+    r = client.post(
+        "/api/media",
+        files=[("files", ("PXL_newer.jpg", io.BytesIO(motion_photo), "image/jpeg"))],
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1
+    assert data[0]["media_type"] == "video"
+    assert data[0]["original_name"] == "PXL_newer_live.mp4"
+
+
+def test_multi_upload_motion_photo_plus_regular(client, tmp_path):
+    """Uploading a Motion Photo + regular JPEG in one request returns video + photo."""
+    jpeg_bytes = _make_jpeg()
+    mp4_bytes = _make_tiny_mp4(tmp_path)
+    motion_photo = _build_samsung_motion_photo(jpeg_bytes, mp4_bytes)
+    regular_jpeg = _make_jpeg(width=300, height=200, color="yellow")
+
+    r = client.post(
+        "/api/media",
+        files=[
+            ("files", ("motion.jpg", io.BytesIO(motion_photo), "image/jpeg")),
+            ("files", ("regular.jpg", io.BytesIO(regular_jpeg), "image/jpeg")),
+        ],
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+    types = {d["media_type"] for d in data}
+    assert types == {"video", "photo"}
+
+
+def test_samsung_tiny_video_falls_back_to_image(client):
+    """Samsung Motion Photo with embedded video < 8 bytes falls back to image."""
+    jpeg_bytes = _make_jpeg()
+    tiny_video = b"\x00\x01\x02"  # 3 bytes, below _MIN_VIDEO_SIZE
+    motion_photo = _build_samsung_motion_photo(jpeg_bytes, tiny_video)
+
+    r = client.post(
+        "/api/media",
+        files=[("files", ("tiny_vid.jpg", io.BytesIO(motion_photo), "image/jpeg"))],
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1
+    # Video too small → extract_motion_video returns None → processed as image
+    assert data[0]["media_type"] == "photo"
+
+
 def test_duplicate_motion_photo_dedup(client, tmp_path):
     """Uploading the same Motion Photo twice returns the same video record."""
     jpeg_bytes = _make_jpeg()

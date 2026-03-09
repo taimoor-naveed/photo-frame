@@ -223,3 +223,38 @@ class TestExtractMotionVideo:
         """Samsung marker present but nothing after it returns None."""
         data = JPEG_SOI + JPEG_EOI + b"MotionPhoto_Data"
         assert extract_motion_video(data) is None
+
+    def test_non_jpeg_with_samsung_marker_returns_none(self):
+        """PNG data with Samsung marker appended should not be detected."""
+        png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        data = png_header + b"MotionPhoto_Data" + FAKE_VIDEO
+        assert extract_motion_video(data) is None
+
+    def test_non_jpeg_with_pixel_xmp_returns_none(self):
+        """Non-JPEG data containing Pixel XMP patterns should not be detected."""
+        data = b"\x89PNG" + b'\x00' * 20 + b'GCamera:MicroVideo="1" GCamera:MicroVideoOffset="12"' + FAKE_VIDEO
+        assert extract_motion_video(data) is None
+
+
+class TestSamsungRfind:
+    """Tests for Samsung rfind behavior — last marker wins."""
+
+    def test_duplicate_markers_uses_last(self):
+        """When Samsung marker appears twice, the last one is used for extraction."""
+        # First marker in "metadata" area, second is the real separator
+        metadata_area = b"MotionPhoto_Data" + b"fake_metadata_garbage"
+        data = JPEG_SOI + metadata_area + JPEG_EOI + b"MotionPhoto_Data" + FAKE_VIDEO
+        result = detect_motion_photo(data)
+        assert result is not None
+        assert result["format"] == "samsung"
+        # The extracted video should start after the LAST marker
+        extracted = data[result["video_offset"]:]
+        assert extracted == FAKE_VIDEO
+
+    def test_marker_in_exif_with_real_video(self):
+        """Samsung marker in EXIF metadata doesn't prevent real video extraction."""
+        # Simulate: JPEG SOI + EXIF with marker string + JPEG EOI + real marker + video
+        exif_with_marker = b"\xff\xe1\x00\x20" + b"Exif\x00\x00" + b"MotionPhoto_Data" + b"\x00" * 10
+        data = JPEG_SOI + exif_with_marker + JPEG_EOI + b"MotionPhoto_Data" + FAKE_VIDEO
+        result = extract_motion_video(data)
+        assert result == FAKE_VIDEO

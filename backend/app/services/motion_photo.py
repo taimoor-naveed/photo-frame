@@ -32,8 +32,14 @@ def detect_motion_photo(data: bytes) -> dict | None:
     if len(data) < 20:
         return None
 
+    # Motion Photos are JPEG-only — skip non-JPEG data
+    if data[:2] != b"\xff\xd8":
+        return None
+
     # --- Samsung: MotionPhoto_Data marker ---
-    samsung_pos = data.find(_SAMSUNG_MARKER)
+    # Use rfind to match the LAST occurrence — the marker can also appear
+    # in EXIF/XMP metadata, but the real separator is always the last one.
+    samsung_pos = data.rfind(_SAMSUNG_MARKER)
     if samsung_pos != -1:
         video_start = samsung_pos + len(_SAMSUNG_MARKER)
         video_size = len(data) - video_start

@@ -1,17 +1,20 @@
 # Photo Frame — Project State
 
-## Current Status: Feature-Complete MVP
+## Current Status: Motion Photo Support (in progress)
 
-All core features implemented and tested. Ready for manual QA and RPi deployment.
+Branch: `feature/live-motion-photo-support`
+
+Motion Photo detection + extraction: **done**. QA tested, bugs fixed, all tests passing.
+iOS upload shortcut / mobile upload page: **not started** — next task.
 
 ## Test Counts
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 142 | All passing |
-| Frontend (vitest) | 142 | All passing |
+| Backend (pytest) | 163 | All passing |
+| Frontend (vitest) | 146 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~465** | **Green** |
+| **Total** | **~509** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
@@ -61,7 +64,28 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
 ---
 
+## Next Steps
+
+1. **Mobile upload page** — build a simple web-based upload page at `/upload` (mobile-friendly, dark theme) so iPhone users can upload photos/videos from Safari without needing an iOS Shortcut. Backend serves a standalone HTML page.
+2. **iOS Shortcut (optional)** — step-by-step guide exists at `docs/ios-shortcut-setup.md`. Can be created manually on iPhone if the web upload page isn't sufficient for Live Photo video extraction.
+3. **Deploy** — deploy Motion Photo support to prod, test with real Android Motion Photos and iOS Live Photos.
+
+---
+
 ## Recent Changes
+
+### Motion Photo Support (2026-03-09)
+
+Android Motion Photos are now automatically detected and extracted during upload. When a JPEG containing an embedded video (Samsung `MotionPhoto_Data` marker or Google Pixel XMP metadata) is uploaded, the backend extracts just the video and saves it as a video media item. The JPEG is discarded.
+
+- **Detection service**: `backend/app/services/motion_photo.py` — supports Samsung older format, Pixel older (MicroVideoOffset), Pixel newer (MotionPhoto + Item:Length)
+- **Upload integration**: `backend/app/routers/media.py` — Motion Photo check before `process_image()`, fallback to image if video extraction fails
+- **Duplicate detection**: SHA-256 of extracted video bytes, deduplicates across uploads
+- **QA fixes**: `rfind()` for Samsung marker (prevents false positive on EXIF metadata), JPEG magic byte check (skips non-JPEG files)
+- **ffmpeg fix**: Added `force_divisible_by=2` to all scale filters in `video.py` (odd dimensions cause encoding failures)
+- **Tests**: 21 unit tests (detection + extraction + rfind + non-JPEG rejection), 8 integration tests (Samsung, Pixel older, Pixel newer, corrupt fallback, regular JPEG regression, multi-upload, tiny video fallback, duplicate dedup)
+
+
 
 ### Animated Transition on Current Photo Delete (2026-03-07)
 
