@@ -2,34 +2,643 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Wrap the existing React frontend in Capacitor for iOS/Android, adding Live Photo video extraction (iOS native + Android server-side Motion Photo detection) and share sheet integration.
+**Goal:** Wrap the existing React frontend in Capacitor for iOS/Android, adding Live Photo video extraction (iOS native) and Motion Photo extraction (server-side for Android/web). Share sheet integration as a follow-up.
 
-**Architecture:** Capacitor wraps the Vite build output in a native WebView. All existing React code runs unchanged. A custom iOS Swift plugin extracts the MOV component from iOS Live Photos. For Android Motion Photos (Google Pixel, Samsung), the backend detects embedded video in uploaded JPEGs via XMP metadata and extracts it server-side — no native Android plugin needed. The API base URL becomes configurable via `VITE_SERVER_BASE` env var (defaults to empty for web, set to `http://home-pc` for mobile builds). A connectivity guard blocks the app when the server is unreachable.
+**Architecture:** Capacitor wraps the Vite build output (`dist/`) in a native WebView. All existing React UI code runs unchanged. HTTP requests are routed through Capacitor's native HTTP layer (`CapacitorHttp`) which bypasses CORS entirely — no backend CORS changes needed. WebSocket connections go through the WebView natively (no CORS restrictions). A custom iOS Swift plugin extracts the MOV component from iOS Live Photos via PHAssetResource APIs. For Android Motion Photos (Google Pixel + Samsung), the backend detects embedded video in uploaded JPEGs and extracts it server-side during the normal upload pipeline.
 
-**Tech Stack:** Capacitor 6, Swift (iOS plugin), Python (server-side Motion Photo extraction), existing React/TypeScript/Vite/Tailwind stack.
+**Tech Stack:** Capacitor 6, Swift (iOS plugin), Python (server-side Motion Photo extraction), existing React 19 / TypeScript / Vite 6 / Tailwind stack.
+
+**What runs where:**
+- Phases 1-2: Backend changes → **Docker** (existing `docker compose exec backend` workflow)
+- Phase 3: Frontend changes → **Docker** (existing `docker compose exec frontend` workflow)
+- Phases 4+: Capacitor/native → **Mac host** (requires Xcode, Android Studio, `npm` on host)
 
 ---
 
-## Phase 1: Capacitor Setup & Base URL Configuration
+## Phase 1: Server-Side Motion Photo Extraction
 
-### Task 1: Make API base URL configurable
+Android Motion Photos embed a video inside a JPEG/HEIC file. The backend should detect these on upload and extract the video as a separate media item. This works from the web UI too — not mobile-specific.
 
-The API client and asset URL helpers use hardcoded relative paths (`/api`, `/uploads/...`). These need to resolve to `http://home-pc` in mobile builds.
+### How Motion Photos work
+
+The file is a valid JPEG with video bytes appended after the image data. Four known formats:
+
+| Manufacturer | Format | Detection | Video location |
+|-------------|--------|-----------|---------------|
+| Google Pixel (pre-Android 11) | XMP `GCamera:MicroVideo="1"` | `MicroVideoOffset` in XMP | `file_size - MicroVideoOffset` to EOF |
+| Google Pixel (Android 11+) | XMP `GCamera:MotionPhoto="1"` | `Container:Directory` with `Item:Length` | `file_size - Item:Length` to EOF |
+| Samsung (older) | ASCII marker | `MotionPhoto_Data` byte sequence | After the 16-byte marker to EOF |
+| Samsung (newer) | SEF trailer | `SEFH`/`SEFT` footer block | Offset table in SEFH block |
+
+All formats: the embedded video is H.264 MP4.
+
+---
+
+### Task 1.1: Create Motion Photo detection service — unit tests
+
+Write tests first for detecting whether a JPEG contains a Motion Photo.
+
+**Files:**
+- Create: `backend/tests/unit/test_motion_photo.py`
+
+**Test cases to cover:**
+
+| Test | Input | Expected |
+|------|-------|----------|
+| Regular JPEG (no Motion Photo) | Valid JPEG, no XMP | `detect_motion_photo()` returns `None` |
+| Google Pixel older format | JPEG + XMP with `MicroVideoOffset` + appended video | Returns `{"format": "pixel", "video_offset": N}` |
+| Google Pixel newer format | JPEG + XMP with `MotionPhoto="1"` + `Item:Length` | Returns `{"format": "pixel", "video_offset": N}` |
+| Samsung older format | JPEG + `MotionPhoto_Data` marker + MP4 | Returns `{"format": "samsung", "video_offset": N}` |
+| Empty bytes | `b""` | Returns `None` |
+| Non-JPEG binary data | Random bytes | Returns `None` |
+| XMP says Motion Photo but offset is invalid (beyond file size) | JPEG + XMP with `MicroVideoOffset` larger than file | Returns `None` |
+| XMP says Motion Photo but offset is zero | `MicroVideoOffset="0"` | Returns `None` |
+| JPEG with unrelated XMP (no GCamera namespace) | JPEG + generic XMP | Returns `None` |
+
+**Code:**
+
+```python
+# backend/tests/unit/test_motion_photo.py
+import struct
+import pytest
+from app.services.motion_photo import detect_motion_photo, extract_motion_video
+
+# --- Test data builders ---
+
+JPEG_SOI = b"\xff\xd8"
+JPEG_EOI = b"\xff\xd9"
+FAKE_VIDEO = b"\x00\x00\x00\x1c\x66\x74\x79\x70\x69\x73\x6f\x6d"  # minimal ftyp box
+XMP_NS = b"http://ns.adobe.com/xap/1.0/\x00"
+
+
+def _make_jpeg_with_xmp(xmp_payload: bytes, appended: bytes = b"") -> bytes:
+    """Build a minimal JPEG with an APP1 XMP segment and optional appended data."""
+    app1_data = XMP_NS + xmp_payload
+    app1_length = len(app1_data) + 2  # +2 for the length field itself
+    return (
+        JPEG_SOI
+        + b"\xff\xe1"
+        + struct.pack(">H", app1_length)
+        + app1_data
+        + b"\x00" * 50  # image data padding
+        + JPEG_EOI
+        + appended
+    )
+
+
+def _make_plain_jpeg() -> bytes:
+    return JPEG_SOI + b"\x00" * 100 + JPEG_EOI
+
+
+def _make_pixel_older(video: bytes = FAKE_VIDEO) -> bytes:
+    xmp = f'<x:xmpmeta><rdf:RDF><rdf:Description GCamera:MicroVideo="1" GCamera:MicroVideoOffset="{len(video)}"/></rdf:RDF></x:xmpmeta>'.encode()
+    return _make_jpeg_with_xmp(xmp, video)
+
+
+def _make_pixel_newer(video: bytes = FAKE_VIDEO) -> bytes:
+    xmp = (
+        '<x:xmpmeta><rdf:RDF><rdf:Description GCamera:MotionPhoto="1" GCamera:MotionPhotoVersion="1">'
+        f'<Container:Directory><rdf:Seq>'
+        f'<rdf:li Item:Semantic="Primary" Item:Mime="image/jpeg"/>'
+        f'<rdf:li Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="{len(video)}"/>'
+        f'</rdf:Seq></Container:Directory>'
+        f'</rdf:Description></rdf:RDF></x:xmpmeta>'
+    ).encode()
+    return _make_jpeg_with_xmp(xmp, video)
+
+
+def _make_samsung_older(video: bytes = FAKE_VIDEO) -> bytes:
+    return JPEG_SOI + b"\x00" * 100 + JPEG_EOI + b"MotionPhoto_Data" + video
+
+
+# --- Detection tests ---
+
+
+class TestDetectMotionPhoto:
+    def test_plain_jpeg_returns_none(self):
+        assert detect_motion_photo(_make_plain_jpeg()) is None
+
+    def test_empty_bytes_returns_none(self):
+        assert detect_motion_photo(b"") is None
+
+    def test_random_binary_returns_none(self):
+        assert detect_motion_photo(b"\x00\x01\x02\x03" * 100) is None
+
+    def test_pixel_older_format(self):
+        data = _make_pixel_older()
+        result = detect_motion_photo(data)
+        assert result is not None
+        assert result["format"] == "pixel"
+        assert result["video_offset"] == len(data) - len(FAKE_VIDEO)
+
+    def test_pixel_newer_format(self):
+        data = _make_pixel_newer()
+        result = detect_motion_photo(data)
+        assert result is not None
+        assert result["format"] == "pixel"
+        assert result["video_offset"] == len(data) - len(FAKE_VIDEO)
+
+    def test_samsung_older_format(self):
+        data = _make_samsung_older()
+        result = detect_motion_photo(data)
+        assert result is not None
+        assert result["format"] == "samsung"
+
+    def test_offset_beyond_file_returns_none(self):
+        """MicroVideoOffset larger than file size → invalid, return None."""
+        xmp = '<x:xmpmeta><rdf:RDF><rdf:Description GCamera:MicroVideo="1" GCamera:MicroVideoOffset="999999"/></rdf:RDF></x:xmpmeta>'.encode()
+        data = _make_jpeg_with_xmp(xmp)
+        assert detect_motion_photo(data) is None
+
+    def test_offset_zero_returns_none(self):
+        """MicroVideoOffset=0 means no video → return None."""
+        xmp = '<x:xmpmeta><rdf:RDF><rdf:Description GCamera:MicroVideo="1" GCamera:MicroVideoOffset="0"/></rdf:RDF></x:xmpmeta>'.encode()
+        data = _make_jpeg_with_xmp(xmp)
+        assert detect_motion_photo(data) is None
+
+    def test_unrelated_xmp_returns_none(self):
+        """XMP present but no GCamera namespace → not a Motion Photo."""
+        xmp = b'<x:xmpmeta><rdf:RDF><rdf:Description dc:title="My Photo"/></rdf:RDF></x:xmpmeta>'
+        data = _make_jpeg_with_xmp(xmp)
+        assert detect_motion_photo(data) is None
+
+    def test_item_length_zero_returns_none(self):
+        """Item:Length="0" → no video, return None."""
+        xmp = (
+            '<x:xmpmeta><rdf:RDF><rdf:Description GCamera:MotionPhoto="1">'
+            '<Container:Directory><rdf:Seq>'
+            '<rdf:li Item:Semantic="Primary" Item:Mime="image/jpeg"/>'
+            '<rdf:li Item:Semantic="MotionPhoto" Item:Mime="video/mp4" Item:Length="0"/>'
+            '</rdf:Seq></Container:Directory>'
+            '</rdf:Description></rdf:RDF></x:xmpmeta>'
+        ).encode()
+        data = _make_jpeg_with_xmp(xmp)
+        assert detect_motion_photo(data) is None
+
+
+# --- Extraction tests ---
+
+
+class TestExtractMotionVideo:
+    def test_extract_from_pixel_older(self):
+        data = _make_pixel_older()
+        video = extract_motion_video(data)
+        assert video == FAKE_VIDEO
+
+    def test_extract_from_pixel_newer(self):
+        data = _make_pixel_newer()
+        video = extract_motion_video(data)
+        assert video == FAKE_VIDEO
+
+    def test_extract_from_samsung(self):
+        data = _make_samsung_older()
+        video = extract_motion_video(data)
+        assert video == FAKE_VIDEO
+
+    def test_extract_plain_jpeg_returns_none(self):
+        assert extract_motion_video(_make_plain_jpeg()) is None
+
+    def test_extract_empty_returns_none(self):
+        assert extract_motion_video(b"") is None
+
+    def test_extract_tiny_video_returns_none(self):
+        """Video portion < 8 bytes is too small to be valid → return None."""
+        data = _make_pixel_older(video=b"\x00\x01\x02")
+        video = extract_motion_video(data)
+        assert video is None
+
+    def test_samsung_marker_at_very_end_returns_none(self):
+        """MotionPhoto_Data marker exists but nothing after it."""
+        data = JPEG_SOI + b"\x00" * 50 + b"MotionPhoto_Data"
+        assert extract_motion_video(data) is None
+```
+
+**Run:** `docker compose exec backend python -m pytest tests/unit/test_motion_photo.py -v`
+**Expected:** FAIL — `app.services.motion_photo` doesn't exist yet.
+
+---
+
+### Task 1.2: Implement Motion Photo detection and extraction service
+
+**Files:**
+- Create: `backend/app/services/motion_photo.py`
+
+```python
+# backend/app/services/motion_photo.py
+"""Detect and extract embedded video from Android Motion Photos.
+
+Supports:
+- Google Pixel (older): XMP GCamera:MicroVideoOffset
+- Google Pixel (newer): XMP GCamera:MotionPhoto + Container:Directory Item:Length
+- Samsung (older): MotionPhoto_Data ASCII marker
+- Samsung (newer): SEF trailer — NOT YET IMPLEMENTED (rare, log and skip)
+
+The video is always appended after the JPEG/HEIC image data.
+Extraction is non-destructive: the original image bytes are unchanged.
+"""
+
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+# --- Samsung ---
+_SAMSUNG_MARKER = b"MotionPhoto_Data"
+
+# --- Google Pixel XMP patterns ---
+_MICRO_VIDEO_RE = re.compile(rb'GCamera:MicroVideo="1"')
+_MICRO_VIDEO_OFFSET_RE = re.compile(rb'GCamera:MicroVideoOffset="(\d+)"')
+_MOTION_PHOTO_RE = re.compile(rb'GCamera:MotionPhoto="1"')
+_ITEM_LENGTH_RE = re.compile(rb'Item:Length="(\d+)"')
+
+# Minimum viable video size (an MP4 ftyp box is at least 8 bytes)
+_MIN_VIDEO_SIZE = 8
+
+
+def detect_motion_photo(data: bytes) -> dict | None:
+    """Check if image data contains an embedded Motion Photo video.
+
+    Args:
+        data: Raw file bytes (JPEG or HEIC).
+
+    Returns:
+        {"format": "pixel"|"samsung", "video_offset": int} if Motion Photo detected.
+        None otherwise.
+    """
+    if len(data) < 20:
+        return None
+
+    # Samsung older format: look for MotionPhoto_Data ASCII marker
+    samsung_idx = data.find(_SAMSUNG_MARKER)
+    if samsung_idx != -1:
+        video_offset = samsung_idx + len(_SAMSUNG_MARKER)
+        video_size = len(data) - video_offset
+        if video_size >= _MIN_VIDEO_SIZE:
+            return {"format": "samsung", "video_offset": video_offset}
+
+    # Google Pixel older format: MicroVideoOffset (offset from end of file)
+    if _MICRO_VIDEO_RE.search(data):
+        m = _MICRO_VIDEO_OFFSET_RE.search(data)
+        if m:
+            offset_from_end = int(m.group(1))
+            if offset_from_end <= 0:
+                return None
+            video_offset = len(data) - offset_from_end
+            video_size = offset_from_end
+            if video_offset > 0 and video_size >= _MIN_VIDEO_SIZE:
+                return {"format": "pixel", "video_offset": video_offset}
+
+    # Google Pixel newer format: MotionPhoto + Container:Directory Item:Length
+    if _MOTION_PHOTO_RE.search(data):
+        m = _ITEM_LENGTH_RE.search(data)
+        if m:
+            video_length = int(m.group(1))
+            if video_length <= 0:
+                return None
+            video_offset = len(data) - video_length
+            if video_offset > 0 and video_length >= _MIN_VIDEO_SIZE:
+                return {"format": "pixel", "video_offset": video_offset}
+
+    return None
+
+
+def extract_motion_video(data: bytes) -> bytes | None:
+    """Extract the embedded video from a Motion Photo.
+
+    Args:
+        data: Raw file bytes (JPEG or HEIC).
+
+    Returns:
+        Video bytes (MP4), or None if not a Motion Photo or video too small.
+    """
+    info = detect_motion_photo(data)
+    if info is None:
+        return None
+
+    video_bytes = data[info["video_offset"]:]
+
+    if len(video_bytes) < _MIN_VIDEO_SIZE:
+        logger.warning(
+            "Motion Photo (%s) video too small (%d bytes), skipping",
+            info["format"],
+            len(video_bytes),
+        )
+        return None
+
+    logger.info(
+        "Extracted %d-byte video from %s Motion Photo",
+        len(video_bytes),
+        info["format"],
+    )
+    return video_bytes
+```
+
+**Run:** `docker compose exec backend python -m pytest tests/unit/test_motion_photo.py -v`
+**Expected:** All PASS.
+
+**Commit:** `feat: add Motion Photo detection and video extraction service`
+
+---
+
+### Task 1.3: Integrate Motion Photo extraction into upload pipeline
+
+When an image is uploaded, check if it contains an embedded Motion Photo video. If so, extract the video bytes and process them through the existing video pipeline (save, thumbnail, transcode if needed). The image itself is still saved normally.
+
+**Key design decisions:**
+- **Non-fatal:** If video extraction or video processing fails, log a warning and continue. The image upload still succeeds.
+- **Duplicate detection:** The extracted video gets its own `content_hash` (SHA-256 of the video bytes, not the whole JPEG). If the same Motion Photo is uploaded twice, both the image hash and video hash will be caught.
+- **Original name:** The extracted video is named `{original_stem}_live.mp4` so users can identify it in the gallery.
+- **Both image and video are returned** in the upload response, so the frontend shows both.
+
+**Files:**
+- Modify: `backend/app/routers/media.py`
+
+**Changes to `upload_media()` (after the image processing block, around line 196):**
+
+After the image `Media` record is committed and appended to `results`, add:
+
+```python
+# Check for embedded Motion Photo video (Android/Google/Samsung)
+from app.services.motion_photo import extract_motion_video
+
+video_bytes = extract_motion_video(content)
+if video_bytes:
+    try:
+        video_name = f"{Path(original_name).stem}_live.mp4"
+        video_hash = hashlib.sha256(video_bytes).hexdigest()
+        # Skip if this exact video was already extracted/uploaded
+        existing_video = db.query(Media).filter(
+            Media.content_hash == video_hash
+        ).first()
+        if existing_video:
+            results.append(existing_video)
+        else:
+            info_v = save_video_original(video_bytes, video_name)
+            require_transcode_v = needs_transcode(info_v["codec"])
+            needs_scale_v = (
+                not require_transcode_v
+                and (
+                    info_v["width"] > config.DISPLAY_MAX_WIDTH
+                    or info_v["height"] > config.DISPLAY_MAX_HEIGHT
+                )
+            )
+            video_media = Media(
+                filename=info_v["filename"],
+                original_name=video_name,
+                media_type="video",
+                width=info_v["width"],
+                height=info_v["height"],
+                file_size=info_v["file_size"],
+                duration=info_v["duration"],
+                codec=info_v["codec"],
+                thumb_filename=info_v["thumb_filename"],
+                processing_status=(
+                    "processing"
+                    if (require_transcode_v or needs_scale_v)
+                    else "ready"
+                ),
+                content_hash=video_hash,
+            )
+            db.add(video_media)
+            db.commit()
+            db.refresh(video_media)
+            results.append(video_media)
+
+            asyncio.create_task(
+                manager.broadcast({
+                    "type": "media_added",
+                    "payload": MediaOut.model_validate(video_media).model_dump(mode="json"),
+                })
+            )
+
+            if require_transcode_v:
+                original_path_v = config.ORIGINALS_DIR / info_v["filename"]
+                threading.Thread(
+                    target=_transcode_in_background,
+                    args=(video_media.id, original_path_v, info_v["duration"], loop),
+                    daemon=True,
+                ).start()
+            elif needs_scale_v:
+                original_path_v = config.ORIGINALS_DIR / info_v["filename"]
+                threading.Thread(
+                    target=_scale_display_in_background,
+                    args=(video_media.id, original_path_v, info_v["duration"], loop),
+                    daemon=True,
+                ).start()
+    except Exception:
+        logger.warning(
+            "Failed to extract Motion Photo video from '%s', image was saved successfully",
+            original_name,
+            exc_info=True,
+        )
+        # Non-fatal: image upload already succeeded
+```
+
+**Import to add at top of file:**
+```python
+from app.services.motion_photo import extract_motion_video
+```
+
+**Commit:** `feat: extract Motion Photo video during image upload`
+
+---
+
+### Task 1.4: Integration tests for Motion Photo upload
+
+Test the full upload flow: upload a Motion Photo JPEG → verify both photo and video records are created.
+
+**Challenge:** The embedded video needs to be valid enough for ffprobe. We can't use a fake ftyp box. We need a real (tiny) MP4 video embedded in a JPEG.
+
+**Approach:** Generate a minimal MP4 using ffmpeg in the test fixture, then embed it in a JPEG with the Samsung marker (simplest format).
+
+**Files:**
+- Create: `backend/tests/integration/test_motion_photo_upload.py`
+
+**Test cases:**
+
+| Test | Input | Expected |
+|------|-------|----------|
+| Samsung Motion Photo upload | Valid JPEG + `MotionPhoto_Data` + real MP4 | 200, returns 2 items: photo + video |
+| Pixel Motion Photo upload | Valid JPEG + XMP MicroVideoOffset + real MP4 | 200, returns 2 items: photo + video |
+| Motion Photo with corrupt video | Valid JPEG + Samsung marker + garbage bytes | 200, returns 1 item (photo only), video extraction fails gracefully |
+| Regular JPEG upload (regression) | Valid JPEG, no Motion Photo | 200, returns 1 item (photo only) |
+| Duplicate Motion Photo upload | Same Motion Photo uploaded twice | Second upload returns existing records (content_hash match) |
+| Motion Photo video needs transcoding | JPEG + embedded HEVC video | 200, video record has `processing_status="processing"` |
+
+```python
+# backend/tests/integration/test_motion_photo_upload.py
+"""Integration tests for Motion Photo upload flow."""
+import subprocess
+import tempfile
+from io import BytesIO
+from pathlib import Path
+
+import pytest
+from PIL import Image
+
+
+@pytest.fixture
+def real_tiny_mp4(tmp_path) -> bytes:
+    """Generate a real 1-frame MP4 video using ffmpeg."""
+    output = tmp_path / "tiny.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=red:s=64x64:d=0.1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-frames:v", "1",
+            str(output),
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return output.read_bytes()
+
+
+@pytest.fixture
+def real_jpeg_bytes() -> bytes:
+    """Generate a real JPEG image."""
+    img = Image.new("RGB", (100, 100), "blue")
+    buf = BytesIO()
+    img.save(buf, "JPEG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def samsung_motion_photo(real_jpeg_bytes, real_tiny_mp4) -> bytes:
+    """Valid Samsung Motion Photo: JPEG + marker + MP4."""
+    return real_jpeg_bytes + b"MotionPhoto_Data" + real_tiny_mp4
+
+
+@pytest.fixture
+def pixel_motion_photo(real_jpeg_bytes, real_tiny_mp4) -> bytes:
+    """Valid Pixel Motion Photo: JPEG with XMP + appended MP4."""
+    import struct
+    xmp_ns = b"http://ns.adobe.com/xap/1.0/\x00"
+    xmp = f'<x:xmpmeta><rdf:RDF><rdf:Description GCamera:MicroVideo="1" GCamera:MicroVideoOffset="{len(real_tiny_mp4)}"/></rdf:RDF></x:xmpmeta>'.encode()
+    app1_data = xmp_ns + xmp
+    app1_length = len(app1_data) + 2
+    # Rebuild JPEG with XMP APP1 segment injected after SOI
+    jpeg_with_xmp = (
+        b"\xff\xd8"
+        + b"\xff\xe1"
+        + struct.pack(">H", app1_length)
+        + app1_data
+        + real_jpeg_bytes[2:]  # rest of JPEG after SOI
+    )
+    return jpeg_with_xmp + real_tiny_mp4
+
+
+class TestMotionPhotoUpload:
+    def test_samsung_creates_photo_and_video(self, client, samsung_motion_photo):
+        resp = client.post(
+            "/api/media",
+            files=[("files", ("IMG_20260309.jpg", samsung_motion_photo, "image/jpeg"))],
+        )
+        assert resp.status_code == 200
+        items = resp.json()
+        assert len(items) == 2
+        types = {item["media_type"] for item in items}
+        assert types == {"photo", "video"}
+        # Video should be named with _live suffix
+        video = next(i for i in items if i["media_type"] == "video")
+        assert "_live" in video["original_name"]
+
+    def test_pixel_creates_photo_and_video(self, client, pixel_motion_photo):
+        resp = client.post(
+            "/api/media",
+            files=[("files", ("PXL_20260309.jpg", pixel_motion_photo, "image/jpeg"))],
+        )
+        assert resp.status_code == 200
+        items = resp.json()
+        assert len(items) == 2
+        types = {item["media_type"] for item in items}
+        assert types == {"photo", "video"}
+
+    def test_corrupt_video_still_saves_photo(self, client, real_jpeg_bytes):
+        """Embedded video is garbage bytes → photo saved, video skipped."""
+        motion = real_jpeg_bytes + b"MotionPhoto_Data" + b"\x00" * 100
+        resp = client.post(
+            "/api/media",
+            files=[("files", ("corrupt_motion.jpg", motion, "image/jpeg"))],
+        )
+        assert resp.status_code == 200
+        items = resp.json()
+        assert len(items) == 1
+        assert items[0]["media_type"] == "photo"
+
+    def test_regular_jpeg_not_affected(self, client, real_jpeg_bytes):
+        """Regular JPEG without Motion Photo markers → single photo only."""
+        resp = client.post(
+            "/api/media",
+            files=[("files", ("regular.jpg", real_jpeg_bytes, "image/jpeg"))],
+        )
+        assert resp.status_code == 200
+        items = resp.json()
+        assert len(items) == 1
+        assert items[0]["media_type"] == "photo"
+
+    def test_duplicate_motion_photo(self, client, samsung_motion_photo):
+        """Uploading same Motion Photo twice → returns existing records."""
+        resp1 = client.post(
+            "/api/media",
+            files=[("files", ("dup.jpg", samsung_motion_photo, "image/jpeg"))],
+        )
+        resp2 = client.post(
+            "/api/media",
+            files=[("files", ("dup.jpg", samsung_motion_photo, "image/jpeg"))],
+        )
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        # Second upload should return same records (content_hash dedup)
+        ids1 = {item["id"] for item in resp1.json()}
+        ids2 = {item["id"] for item in resp2.json()}
+        # The photo is deduped by content_hash of the full JPEG.
+        # The video was already extracted on first upload.
+        # Second upload: JPEG hash matches → returns existing photo, no re-extraction.
+        assert ids1 == ids2
+```
+
+**Run:** `docker compose exec backend python -m pytest tests/integration/test_motion_photo_upload.py -v`
+**Expected:** All PASS.
+
+**Run full backend suite for regression check:** `./scripts/test-backend.sh`
+**Expected:** All existing tests still pass.
+
+**Commit:** `test: add integration tests for Motion Photo upload`
+
+---
+
+### Task 1.5: Backend test suite — verify no regressions
+
+Run the full test suite to make sure nothing is broken.
+
+**Run:** `./scripts/test-backend.sh`
+**Expected:** All pass. If any fail, fix before proceeding.
+
+**Commit (if fixes needed):** `fix: resolve test regressions from Motion Photo integration`
+
+---
+
+## Phase 2: Frontend — Base URL Configuration
+
+Make the API base URL, asset URLs, and WebSocket URL configurable via `VITE_SERVER_BASE` environment variable. When unset (web builds), behavior is identical to current. When set to `http://home-pc` (mobile builds), all URLs become absolute.
+
+### Task 2.1: Make API and asset base URLs configurable
 
 **Files:**
 - Modify: `frontend/src/api/client.ts`
-- Modify: `frontend/src/hooks/useWebSocket.ts`
 - Modify: `frontend/src/vite-env.d.ts`
 
-**Step 1: Update `client.ts` to use env var for base URL**
+**Changes to `client.ts`:**
 
 ```typescript
-// frontend/src/api/client.ts — top of file
+// Top of file — replace `const API_BASE = "/api";`
 const SERVER_BASE = import.meta.env.VITE_SERVER_BASE || "";
 const API_BASE = `${SERVER_BASE}/api`;
 ```
 
-Update all asset URL helpers to prepend `SERVER_BASE`:
+Update asset URL helpers:
 
 ```typescript
 export function thumbnailUrl(media: Media): string {
@@ -54,167 +663,247 @@ export function displayUrl(media: Media): string {
 }
 ```
 
-**Step 2: Update `useWebSocket.ts` to use env var**
+Export `SERVER_BASE` for use by other modules:
 
 ```typescript
-// In connect():
-const serverBase = import.meta.env.VITE_SERVER_BASE || "";
+export { SERVER_BASE };
+```
+
+**Changes to `vite-env.d.ts`:**
+
+```typescript
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_SERVER_BASE?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+```
+
+**Commit:** `feat: make API and asset URLs configurable via VITE_SERVER_BASE`
+
+---
+
+### Task 2.2: Make WebSocket URL configurable
+
+**Files:**
+- Modify: `frontend/src/hooks/useWebSocket.ts`
+
+**Change the `connect` function** to use `SERVER_BASE` when set:
+
+```typescript
+import { SERVER_BASE } from "../api/client";
+
+// Inside connect():
 let wsUrl: string;
-if (serverBase) {
-  // Mobile: absolute URL — convert http(s) to ws(s)
-  const base = serverBase.replace(/^http/, "ws");
-  wsUrl = `${base}/ws`;
+if (SERVER_BASE) {
+  // Mobile build: convert http(s)://host to ws(s)://host
+  wsUrl = SERVER_BASE.replace(/^http/, "ws") + "/ws";
 } else {
-  // Web: relative URL from current host
+  // Web build: relative URL from current host
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   wsUrl = `${protocol}//${window.location.host}/ws`;
 }
 const ws = new WebSocket(wsUrl);
 ```
 
-**Step 3: Add type declaration for env var**
-
-```typescript
-// frontend/src/vite-env.d.ts — add to ImportMetaEnv
-interface ImportMetaEnv {
-  readonly VITE_SERVER_BASE?: string;
-}
-```
-
-**Step 4: Verify web build still works**
-
-Run: `docker compose exec frontend npm run build`
-Expected: Build succeeds, no env var set = empty string = same relative URLs as before.
-
-**Step 5: Commit**
-
-```
-feat: make API/asset/WS base URL configurable via VITE_SERVER_BASE
-```
+**Commit:** `feat: make WebSocket URL configurable for mobile builds`
 
 ---
 
-### Task 2: Initialize Capacitor in the frontend project
+### Task 2.3: Verify web build is unaffected
 
-**Files:**
-- Create: `frontend/capacitor.config.ts`
-- Modify: `frontend/package.json` (new deps)
-- Create: `frontend/.gitignore` additions for native dirs
+The web build should behave identically since `VITE_SERVER_BASE` is unset (empty string = same relative URLs).
 
-**Step 1: Install Capacitor (run in frontend container or locally)**
+**Run:** `docker compose exec frontend npm run build`
+**Expected:** Build succeeds.
 
-Note: Capacitor CLI and native project setup must run on the Mac host (not Docker), because `npx cap add ios` generates an Xcode project. Docker doesn't have Xcode.
+**Run:** `docker compose exec frontend npm run test`
+**Expected:** All frontend tests pass (existing tests don't set `VITE_SERVER_BASE`, so `SERVER_BASE = ""`).
+
+**Commit (if fixes needed):** `fix: resolve frontend regressions from base URL change`
+
+---
+
+## Phase 3: Capacitor Initialization
+
+**IMPORTANT:** This phase runs on the **Mac host**, not in Docker. Capacitor needs Xcode (iOS) and Android Studio (Android) which aren't available in Docker.
+
+### Task 3.1: Install Capacitor dependencies
+
+**Run on Mac host:**
 
 ```bash
 cd frontend
-npm install @capacitor/core @capacitor/cli --save
+npm install @capacitor/core @capacitor/app
+npm install @capacitor/cli --save-dev
 ```
 
-**Step 2: Initialize Capacitor**
+- `@capacitor/core` — runtime bridge between web and native
+- `@capacitor/app` — app lifecycle events (appUrlOpen, backButton, etc.) — needed for share extension handling later
+- `@capacitor/cli` — build tools (`cap sync`, `cap open`, etc.)
 
+**Commit:** `feat: add Capacitor dependencies`
+
+---
+
+### Task 3.2: Initialize Capacitor and configure
+
+**Run:**
 ```bash
 cd frontend
 npx cap init "Photo Frame" com.flexoptix.photoframe --web-dir dist
 ```
 
-This creates `capacitor.config.ts`.
-
-**Step 3: Configure Capacitor**
+**Then edit the generated `capacitor.config.ts`:**
 
 ```typescript
-// frontend/capacitor.config.ts
 import type { CapacitorConfig } from "@capacitor/core";
 
 const config: CapacitorConfig = {
   appId: "com.flexoptix.photoframe",
   appName: "Photo Frame",
   webDir: "dist",
-  server: {
-    // During development, point to Vite dev server on local network:
-    // url: "http://192.168.x.x:5173",
-    // For production builds, comment out url — Capacitor serves from dist/
+  plugins: {
+    CapacitorHttp: {
+      enabled: true, // Patches fetch/XHR to use native HTTP — bypasses CORS entirely
+    },
   },
 };
 
 export default config;
 ```
 
-**Step 4: Build the web app and add iOS platform**
+**Why `CapacitorHttp`:** The Capacitor WebView runs on `capacitor://localhost` (iOS) or `http://localhost` (Android). Requests to `http://home-pc` would be cross-origin. Instead of configuring CORS, `CapacitorHttp` routes all `fetch()` and `XMLHttpRequest` calls through the native HTTP layer — completely transparent to existing code.
 
-```bash
-cd frontend
-npm run build  # or: VITE_SERVER_BASE=http://home-pc npx vite build
-npx cap add ios
-npx cap add android
-```
+**Note:** `CapacitorHttp` does NOT patch `WebSocket`. That's fine — WebSocket connections from Capacitor WebView work without CORS restrictions.
 
-**Step 5: Add native dirs to .gitignore (optional — large generated dirs)**
-
-Decide: track `ios/` and `android/` in git or not. Recommendation: track them (they contain config like Info.plist, entitlements, share extension code that must be version-controlled).
-
-**Step 6: Sync and open**
-
-```bash
-npx cap sync
-npx cap open ios      # Opens Xcode
-npx cap open android  # Opens Android Studio
-```
-
-**Step 7: Commit**
-
-```
-feat: initialize Capacitor for iOS and Android
-```
+**Commit:** `feat: configure Capacitor with CapacitorHttp for CORS bypass`
 
 ---
 
-## Phase 2: Connectivity Guard
+### Task 3.3: Add iOS platform
 
-### Task 3: Add connectivity check on app launch
+**Prerequisites:** Xcode installed, Apple developer account (free is fine for personal device testing).
 
-When the app opens, ping `http://home-pc/api/settings`. If unreachable, show a blocking screen. This only applies to the mobile app (when `VITE_SERVER_BASE` is set).
+```bash
+cd frontend
+VITE_SERVER_BASE=http://home-pc npm run build   # Build with mobile base URL
+npx cap add ios
+npx cap sync
+```
+
+This creates `frontend/ios/` with an Xcode project.
+
+**Verify:** `npx cap open ios` — Xcode opens, project loads without errors.
+
+**Commit:** `feat: add iOS platform`
+
+---
+
+### Task 3.4: Add Android platform
+
+**Prerequisites:** Android Studio installed, Android SDK.
+
+```bash
+cd frontend
+npx cap add android
+npx cap sync
+```
+
+This creates `frontend/android/` with an Android Studio project.
+
+**Verify:** `npx cap open android` — Android Studio opens, project syncs without errors.
+
+**Commit:** `feat: add Android platform`
+
+---
+
+### Task 3.5: First build — verify web content loads in simulators
+
+Build and run the app in both iOS Simulator and Android Emulator. At this point it should show the existing web UI (gallery, upload, settings) with the connectivity guard blocking if `home-pc` isn't reachable.
+
+**iOS:**
+1. Open Xcode: `npx cap open ios`
+2. Select a simulator (e.g., iPhone 15)
+3. Build and run (Cmd+R)
+4. Expected: App launches, shows web UI or connectivity error (depending on network)
+
+**Android:**
+1. Open Android Studio: `npx cap open android`
+2. Select an emulator
+3. Build and run
+4. Expected: Same as iOS
+
+**Known issues to watch for:**
+- If the app shows a blank white screen, check that `webDir: "dist"` is correct and `npm run build` was run
+- If assets don't load, verify `VITE_SERVER_BASE` was set during build
+- If WebSocket doesn't connect, verify the WS URL is correct in the console
+
+**Commit:** `chore: verify Capacitor builds on iOS and Android simulators`
+
+---
+
+## Phase 4: Connectivity Guard
+
+### Task 4.1: Create ConnectivityGuard component
+
+When `VITE_SERVER_BASE` is set (mobile build), ping the server on launch. If unreachable, block the app with a friendly message. If `VITE_SERVER_BASE` is unset (web build), render children immediately.
 
 **Files:**
 - Create: `frontend/src/components/ConnectivityGuard.tsx`
-- Modify: `frontend/src/App.tsx`
 
-**Step 1: Create ConnectivityGuard component**
+**Edge cases handled:**
+- Server unreachable (network error, DNS failure) → "Not Connected" screen
+- Server reachable but returns non-200 (e.g., 500) → still considered "connected" (server is up, just having issues — let the user in)
+- Timeout after 5 seconds → treat as unreachable
+- Web build (no `VITE_SERVER_BASE`) → skip check entirely, render children
 
 ```tsx
 // frontend/src/components/ConnectivityGuard.tsx
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { SERVER_BASE } from "../api/client";
 
 type Status = "checking" | "connected" | "unreachable";
 
-export default function ConnectivityGuard({ children }: { children: React.ReactNode }) {
-  const serverBase = import.meta.env.VITE_SERVER_BASE;
-  const [status, setStatus] = useState<Status>(serverBase ? "checking" : "connected");
+export default function ConnectivityGuard({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [status, setStatus] = useState<Status>(
+    SERVER_BASE ? "checking" : "connected",
+  );
+
+  const check = useCallback(async () => {
+    if (!SERVER_BASE) return;
+    setStatus("checking");
+    try {
+      await fetch(`${SERVER_BASE}/api/settings`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      // Any response (even 500) means server is reachable
+      setStatus("connected");
+    } catch {
+      setStatus("unreachable");
+    }
+  }, []);
 
   useEffect(() => {
-    if (!serverBase) return; // Web mode — skip check
-
-    let cancelled = false;
-    const check = async () => {
-      setStatus("checking");
-      try {
-        const res = await fetch(`${serverBase}/api/settings`, {
-          signal: AbortSignal.timeout(5000),
-        });
-        if (!cancelled) setStatus(res.ok ? "connected" : "unreachable");
-      } catch {
-        if (!cancelled) setStatus("unreachable");
-      }
-    };
     check();
-    return () => { cancelled = true; };
-  }, [serverBase]);
+  }, [check]);
 
   if (status === "checking") {
     return (
       <div className="min-h-screen bg-ink flex items-center justify-center">
         <div className="text-center">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-white/[0.08] border-t-copper mx-auto mb-4" />
-          <p className="text-warm-gray">Connecting to Photo Frame...</p>
+          <p className="text-warm-gray text-sm">
+            Connecting to Photo Frame...
+          </p>
         </div>
       </div>
     );
@@ -224,9 +913,18 @@ export default function ConnectivityGuard({ children }: { children: React.ReactN
     return (
       <div className="min-h-screen bg-ink flex items-center justify-center px-6">
         <div className="text-center max-w-sm">
-          <svg className="mx-auto h-16 w-16 text-warm-muted mb-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0" />
+          <svg
+            className="mx-auto h-16 w-16 text-warm-muted mb-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.858 15.355-5.858 21.213 0"
+            />
           </svg>
           <h1 className="font-display text-2xl text-warm-white mb-3">
             Not Connected
@@ -235,7 +933,7 @@ export default function ConnectivityGuard({ children }: { children: React.ReactN
             Connect to your home network to use Photo Frame.
           </p>
           <button
-            onClick={() => setStatus("checking")}
+            onClick={check}
             className="rounded-xl bg-copper px-6 py-3 text-sm font-semibold text-ink hover:bg-copper-light transition-colors"
           >
             Try Again
@@ -249,352 +947,80 @@ export default function ConnectivityGuard({ children }: { children: React.ReactN
 }
 ```
 
-**Step 2: Wrap App with ConnectivityGuard**
+---
+
+### Task 4.2: Integrate ConnectivityGuard into App
+
+**Files:**
+- Modify: `frontend/src/App.tsx`
+
+Wrap the entire `<Routes>` block:
 
 ```tsx
-// frontend/src/App.tsx — wrap the top-level return
 import ConnectivityGuard from "./components/ConnectivityGuard";
 
 export default function App() {
   return (
     <ConnectivityGuard>
       <Routes>
-        {/* ... existing routes ... */}
+        {/* ... existing routes unchanged ... */}
       </Routes>
     </ConnectivityGuard>
   );
 }
 ```
 
-**Step 3: Verify web build is unaffected**
+**Verify web build unaffected:** `docker compose exec frontend npm run test`
 
-When `VITE_SERVER_BASE` is not set, `ConnectivityGuard` renders children immediately (no check).
-
-**Step 4: Commit**
-
-```
-feat: add connectivity guard for mobile app
-```
+**Commit:** `feat: add connectivity guard for mobile app`
 
 ---
 
-## Phase 3: Server-Side Motion Photo Extraction (Android + Web)
-
-### Task 4: Create Motion Photo detection and extraction service
-
-Android Motion Photos (Google Pixel and Samsung) embed a video inside the JPEG file. The backend should detect these on upload and extract the video as a separate media item.
-
-**Format details:**
-- **Google Pixel (older):** XMP `GCamera:MicroVideoOffset` = byte offset from EOF. Video starts at `file_size - offset`.
-- **Google Pixel (newer):** XMP `Container:Directory` with `Item:Length` for video. Video starts at `file_size - length`.
-- **Samsung (older):** ASCII marker `MotionPhoto_Data` (16 bytes) followed by MP4 data.
-- **Samsung (newer):** SEF trailer with `SEFH`/`SEFT` markers containing offset table.
-
-All formats: the video is H.264 MP4 appended after the JPEG data.
+### Task 4.3: Unit tests for ConnectivityGuard
 
 **Files:**
-- Create: `backend/app/services/motion_photo.py`
-- Modify: `backend/app/routers/media.py` (call extraction after image upload)
-- Test: `backend/tests/unit/test_motion_photo.py`
-- Test: `backend/tests/integration/test_motion_photo_upload.py`
+- Create: `frontend/src/components/__tests__/ConnectivityGuard.test.tsx`
 
-**Step 1: Write failing tests for Motion Photo detection**
+**Test cases:**
 
-```python
-# backend/tests/unit/test_motion_photo.py
-import struct
-from app.services.motion_photo import detect_motion_photo, extract_motion_video
+| Test | Setup | Expected |
+|------|-------|----------|
+| Web mode (no SERVER_BASE) | Mock `SERVER_BASE = ""` | Renders children immediately, no fetch |
+| Mobile mode — server reachable | Mock fetch resolving | Shows loading spinner, then renders children |
+| Mobile mode — server unreachable | Mock fetch rejecting | Shows "Not Connected" screen |
+| Retry button works | Mock fetch reject → click retry → mock fetch resolve | Shows children after retry |
+| Server returns 500 | Mock fetch returning 500 | Still shows children (server is reachable) |
+| Fetch times out | Mock fetch that never resolves (AbortSignal.timeout) | Shows "Not Connected" after timeout |
 
-# Build a fake Motion Photo: JPEG header + padding + marker + fake MP4
-JPEG_HEADER = b'\xff\xd8\xff\xe0'  # minimal JPEG SOI + APP0
-FAKE_VIDEO = b'\x00\x00\x00\x1c\x66\x74\x79\x70\x69\x73\x6f\x6d'  # fake ftyp box
-
-def _make_samsung_motion_photo() -> bytes:
-    """Samsung format: JPEG + MotionPhoto_Data marker + MP4."""
-    jpeg_part = JPEG_HEADER + b'\x00' * 100
-    return jpeg_part + b'MotionPhoto_Data' + FAKE_VIDEO
-
-def _make_pixel_motion_photo_xmp() -> bytes:
-    """Google Pixel format: JPEG with XMP containing MicroVideoOffset."""
-    video_data = FAKE_VIDEO
-    offset = len(video_data)
-    xmp = f'<x:xmpmeta><rdf:RDF><rdf:Description GCamera:MicroVideo="1" GCamera:MicroVideoOffset="{offset}"/></rdf:RDF></x:xmpmeta>'.encode()
-    # Build: JPEG SOI + APP1 (XMP) + padding + video
-    app1_length = len(xmp) + 2 + 29  # 2 for length bytes, 29 for XMP namespace header
-    jpeg_part = b'\xff\xd8\xff\xe1' + struct.pack('>H', app1_length) + b'http://ns.adobe.com/xap/1.0/\x00' + xmp
-    jpeg_part += b'\xff\xd9'  # EOI
-    return jpeg_part + video_data
-
-def test_detect_samsung_motion_photo():
-    data = _make_samsung_motion_photo()
-    result = detect_motion_photo(data)
-    assert result is not None
-    assert result["format"] == "samsung"
-
-def test_detect_pixel_motion_photo():
-    data = _make_pixel_motion_photo_xmp()
-    result = detect_motion_photo(data)
-    assert result is not None
-    assert result["format"] == "pixel"
-
-def test_detect_regular_jpeg_returns_none():
-    data = JPEG_HEADER + b'\x00' * 100 + b'\xff\xd9'
-    result = detect_motion_photo(data)
-    assert result is None
-
-def test_extract_samsung_video():
-    data = _make_samsung_motion_photo()
-    video = extract_motion_video(data)
-    assert video is not None
-    assert video == FAKE_VIDEO
-
-def test_extract_pixel_video():
-    data = _make_pixel_motion_photo_xmp()
-    video = extract_motion_video(data)
-    assert video is not None
-    assert video == FAKE_VIDEO
-```
-
-**Step 2: Run tests to verify they fail**
-
-Run: `docker compose exec backend python -m pytest tests/unit/test_motion_photo.py -v`
-Expected: FAIL (module doesn't exist yet)
-
-**Step 3: Implement the Motion Photo service**
-
-```python
-# backend/app/services/motion_photo.py
-"""Detect and extract video from Android Motion Photos.
-
-Supports:
-- Google Pixel: XMP GCamera:MicroVideoOffset (older) and Container:Directory (newer)
-- Samsung: MotionPhoto_Data ASCII marker (older) and SEF trailer (newer)
-"""
-import re
-import struct
-import logging
-
-logger = logging.getLogger(__name__)
-
-# Samsung marker
-_SAMSUNG_MARKER = b"MotionPhoto_Data"
-
-# XMP patterns for Google Pixel
-_MICRO_VIDEO_RE = re.compile(rb'GCamera:MicroVideo="1"')
-_MICRO_VIDEO_OFFSET_RE = re.compile(rb'GCamera:MicroVideoOffset="(\d+)"')
-_MOTION_PHOTO_RE = re.compile(rb'GCamera:MotionPhoto="1"')
-_ITEM_LENGTH_RE = re.compile(rb'Item:Length="(\d+)"')
-
-
-def detect_motion_photo(data: bytes) -> dict | None:
-    """Check if JPEG/HEIC data contains an embedded Motion Photo video.
-
-    Returns {"format": "samsung"|"pixel", "video_offset": int} or None.
-    """
-    # Samsung: look for MotionPhoto_Data marker
-    samsung_idx = data.find(_SAMSUNG_MARKER)
-    if samsung_idx != -1:
-        video_offset = samsung_idx + len(_SAMSUNG_MARKER)
-        if video_offset < len(data):
-            return {"format": "samsung", "video_offset": video_offset}
-
-    # Google Pixel older format: MicroVideoOffset
-    if _MICRO_VIDEO_RE.search(data):
-        m = _MICRO_VIDEO_OFFSET_RE.search(data)
-        if m:
-            offset_from_end = int(m.group(1))
-            video_offset = len(data) - offset_from_end
-            if 0 < video_offset < len(data):
-                return {"format": "pixel", "video_offset": video_offset}
-
-    # Google Pixel newer format: MotionPhoto + Item:Length
-    if _MOTION_PHOTO_RE.search(data):
-        m = _ITEM_LENGTH_RE.search(data)
-        if m:
-            video_length = int(m.group(1))
-            video_offset = len(data) - video_length
-            if 0 < video_offset < len(data):
-                return {"format": "pixel", "video_offset": video_offset}
-
-    return None
-
-
-def extract_motion_video(data: bytes) -> bytes | None:
-    """Extract the embedded video from a Motion Photo.
-
-    Returns the video bytes, or None if not a Motion Photo.
-    """
-    info = detect_motion_photo(data)
-    if info is None:
-        return None
-
-    video_bytes = data[info["video_offset"]:]
-    if len(video_bytes) < 8:
-        logger.warning("Motion photo video too small (%d bytes), skipping", len(video_bytes))
-        return None
-
-    return video_bytes
-```
-
-**Step 4: Run tests to verify they pass**
-
-Run: `docker compose exec backend python -m pytest tests/unit/test_motion_photo.py -v`
-Expected: PASS
-
-**Step 5: Commit**
-
-```
-feat: add Motion Photo detection and video extraction service
-```
+**Commit:** `test: add ConnectivityGuard tests`
 
 ---
 
-### Task 5: Integrate Motion Photo extraction into upload pipeline
+## Phase 5: iOS Live Photo Plugin
 
-When an image is uploaded, check if it's a Motion Photo. If so, extract the video and create an additional video media record.
+iOS Live Photos are stored as two separate resources in the photo library: a still image (HEIC/JPEG) and a ~3s video (MOV). Unlike Android Motion Photos, these are NOT embedded in a single file — they require native iOS APIs (PhotoKit `PHAssetResource`) to access both components.
 
-**Files:**
-- Modify: `backend/app/routers/media.py` (add Motion Photo check after image processing)
-- Test: `backend/tests/integration/test_motion_photo_upload.py`
-
-**Step 1: Write failing integration test**
-
-```python
-# backend/tests/integration/test_motion_photo_upload.py
-"""Test that uploading a Motion Photo JPEG creates both an image and a video record."""
-import struct
-from io import BytesIO
-from PIL import Image
-
-def _make_valid_samsung_motion_photo() -> bytes:
-    """Create a valid JPEG with Samsung Motion Photo marker + embedded MP4-like data."""
-    # Create a real JPEG image
-    img = Image.new("RGB", (100, 100), "red")
-    buf = BytesIO()
-    img.save(buf, "JPEG")
-    jpeg_bytes = buf.getvalue()
-    # Create a minimal MP4 (ftyp box) — ffprobe may reject this,
-    # so in real tests use a real small video file
-    fake_video = b'\x00\x00\x00\x1c\x66\x74\x79\x70\x69\x73\x6f\x6d'
-    return jpeg_bytes + b'MotionPhoto_Data' + fake_video
-
-def test_motion_photo_upload_creates_video(client, tmp_path):
-    """Uploading a Motion Photo should create the image AND extract+create a video."""
-    data = _make_valid_samsung_motion_photo()
-    response = client.post(
-        "/api/media",
-        files=[("files", ("motion.jpg", data, "image/jpeg"))],
-    )
-    assert response.status_code == 200
-    results = response.json()
-    # Should have at least the image; video extraction may produce a second record
-    # (if the embedded video is valid enough for ffprobe)
-    assert len(results) >= 1
-    assert results[0]["media_type"] == "photo"
-```
-
-**Step 2: Modify upload handler to check for Motion Photos**
-
-In `backend/app/routers/media.py`, after the image processing block (line ~196), add:
-
-```python
-# After image is saved and committed, check for Motion Photo
-from app.services.motion_photo import extract_motion_video
-
-# ... inside the image branch, after db.commit() + db.refresh():
-
-video_bytes = extract_motion_video(content)
-if video_bytes:
-    # Save extracted video and process it through the normal video pipeline
-    try:
-        video_name = f"{Path(original_name).stem}_motionvideo.mp4"
-        video_hash = hashlib.sha256(video_bytes).hexdigest()
-        # Skip if this video was already uploaded
-        existing_video = db.query(Media).filter(Media.content_hash == video_hash).first()
-        if not existing_video:
-            info_v = save_video_original(video_bytes, video_name)
-            require_transcode = needs_transcode(info_v["codec"])
-            needs_scale = (
-                not require_transcode
-                and (info_v["width"] > config.DISPLAY_MAX_WIDTH or info_v["height"] > config.DISPLAY_MAX_HEIGHT)
-            )
-            video_media = Media(
-                filename=info_v["filename"],
-                original_name=video_name,
-                media_type="video",
-                width=info_v["width"],
-                height=info_v["height"],
-                file_size=info_v["file_size"],
-                duration=info_v["duration"],
-                codec=info_v["codec"],
-                thumb_filename=info_v["thumb_filename"],
-                processing_status="processing" if (require_transcode or needs_scale) else "ready",
-                content_hash=video_hash,
-            )
-            db.add(video_media)
-            db.commit()
-            db.refresh(video_media)
-            results.append(video_media)
-
-            asyncio.create_task(
-                manager.broadcast({"type": "media_added", "payload": MediaOut.model_validate(video_media).model_dump(mode="json")})
-            )
-
-            if require_transcode:
-                original_path = config.ORIGINALS_DIR / info_v["filename"]
-                thread = threading.Thread(
-                    target=_transcode_in_background,
-                    args=(video_media.id, original_path, info_v["duration"], loop),
-                    daemon=True,
-                )
-                thread.start()
-            elif needs_scale:
-                original_path = config.ORIGINALS_DIR / info_v["filename"]
-                thread = threading.Thread(
-                    target=_scale_display_in_background,
-                    args=(video_media.id, original_path, info_v["duration"], loop),
-                    daemon=True,
-                )
-                thread.start()
-    except Exception:
-        logger.warning("Failed to extract Motion Photo video from %s", original_name, exc_info=True)
-        # Non-fatal: the image was already saved successfully
-```
-
-**Step 3: Run tests**
-
-Run: `docker compose exec backend python -m pytest tests/integration/test_motion_photo_upload.py -v`
-Expected: PASS
-
-**Step 4: Run full backend test suite to verify no regressions**
-
-Run: `./scripts/test-backend.sh`
-Expected: All pass
-
-**Step 5: Commit**
-
-```
-feat: extract video from Motion Photos during upload
-
-When a JPEG/HEIC is uploaded and contains an embedded Motion Photo
-video (Google Pixel or Samsung format), the video is automatically
-extracted and saved as a separate video media item. Works from both
-the web UI and the mobile app — no client-side changes needed.
-```
-
----
-
-## Phase 4: Native Photo Picker with Live Photo Support (iOS)
-
-### Task 6: Create custom iOS plugin for Live Photo video extraction
-
-No existing Capacitor plugin extracts the MOV component from Live Photos. We need a small custom Swift plugin.
+### Task 5.1: Create the Swift plugin
 
 **Files:**
 - Create: `frontend/ios/App/App/LivePhotoPlugin.swift`
-- Create: `frontend/ios/App/App/LivePhotoPlugin.m` (Objective-C bridge)
+- Create: `frontend/ios/App/App/LivePhotoPlugin.m` (Objective-C bridge for Capacitor)
 
-**Step 1: Write the Swift plugin**
+**What the plugin does:**
+1. Presents iOS PHPicker (native photo picker)
+2. User selects photos/videos (including Live Photos)
+3. For each selection:
+   - **Live Photo**: Extracts the MOV video resource via `PHAssetResource`, saves to temp dir, returns path
+   - **Regular photo**: Loads the image file, saves to temp dir, returns path
+   - **Video**: Loads the video file, saves to temp dir, returns path
+4. Returns array of `{path, name, mimeType, isLivePhoto}` to JavaScript
+
+**Edge cases handled:**
+- User denies photo library permission → plugin returns error with descriptive message
+- User cancels picker → returns empty array (not an error)
+- iCloud-only photo (not downloaded) → `PHAssetResourceRequestOptions.isNetworkAccessAllowed = true` triggers download
+- Live Photo with missing video resource (damaged) → falls back to still image only
+- Large selection (20+ items) → works but may be slow due to sequential file copies
 
 ```swift
 // frontend/ios/App/App/LivePhotoPlugin.swift
@@ -604,19 +1030,30 @@ import Photos
 import PhotosUI
 
 @objc(LivePhotoPlugin)
-public class LivePhotoPlugin: CAPPlugin, PHPickerViewControllerDelegate {
+public class LivePhotoPlugin: CAPPlugin, PHPickerViewControllerDelegate, CAPBridgedPlugin {
+    public let identifier = "LivePhotoPlugin"
+    public let jsName = "LivePhotoPlugin"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "pickMedia", returnType: CAPPluginReturnPromise)
+    ]
+
     private var currentCall: CAPPluginCall?
 
-    // Pick media from photo library, extracting Live Photo video components
     @objc func pickMedia(_ call: CAPPluginCall) {
+        // Check photo library permission
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .denied || status == .restricted {
+            call.reject("Photo library access denied. Please enable in Settings.")
+            return
+        }
+
         currentCall = call
-        let maxItems = call.getInt("maxItems") ?? 10
+        let maxItems = call.getInt("maxItems") ?? 20
 
         DispatchQueue.main.async {
             var config = PHPickerConfiguration(photoLibrary: .shared())
             config.selectionLimit = maxItems
             config.filter = .any(of: [.images, .videos, .livePhotos])
-            // Request current representation to get original assets
             config.preferredAssetRepresentationMode = .current
 
             let picker = PHPickerViewController(configuration: config)
@@ -637,22 +1074,25 @@ public class LivePhotoPlugin: CAPPlugin, PHPickerViewControllerDelegate {
         let group = DispatchGroup()
         var files: [[String: Any]] = []
         let tempDir = FileManager.default.temporaryDirectory
+        let lock = NSLock() // Thread-safe access to files array
 
         for result in results {
             let provider = result.itemProvider
 
-            // Check if it's a Live Photo — extract video component
+            // Live Photo: extract video component
             if provider.canLoadObject(ofClass: PHLivePhoto.self),
                let assetId = result.assetIdentifier {
                 group.enter()
                 extractLivePhotoVideo(assetIdentifier: assetId, tempDir: tempDir) { videoPath in
                     if let path = videoPath {
+                        lock.lock()
                         files.append([
                             "path": path,
                             "name": UUID().uuidString + ".mov",
                             "mimeType": "video/quicktime",
-                            "isLivePhoto": true
+                            "isLivePhoto": true,
                         ])
+                        lock.unlock()
                     }
                     group.leave()
                 }
@@ -660,16 +1100,18 @@ public class LivePhotoPlugin: CAPPlugin, PHPickerViewControllerDelegate {
             // Video
             else if provider.hasItemConformingToTypeIdentifier("public.movie") {
                 group.enter()
-                provider.loadFileRepresentation(forTypeIdentifier: "public.movie") { url, error in
+                provider.loadFileRepresentation(forTypeIdentifier: "public.movie") { url, _ in
                     if let url = url {
                         let dest = tempDir.appendingPathComponent(UUID().uuidString + "." + url.pathExtension)
                         try? FileManager.default.copyItem(at: url, to: dest)
+                        lock.lock()
                         files.append([
                             "path": dest.path,
                             "name": url.lastPathComponent,
                             "mimeType": "video/" + url.pathExtension,
-                            "isLivePhoto": false
+                            "isLivePhoto": false,
                         ])
+                        lock.unlock()
                     }
                     group.leave()
                 }
@@ -677,16 +1119,18 @@ public class LivePhotoPlugin: CAPPlugin, PHPickerViewControllerDelegate {
             // Regular image
             else if provider.hasItemConformingToTypeIdentifier("public.image") {
                 group.enter()
-                provider.loadFileRepresentation(forTypeIdentifier: "public.image") { url, error in
+                provider.loadFileRepresentation(forTypeIdentifier: "public.image") { url, _ in
                     if let url = url {
                         let dest = tempDir.appendingPathComponent(UUID().uuidString + "." + url.pathExtension)
                         try? FileManager.default.copyItem(at: url, to: dest)
+                        lock.lock()
                         files.append([
                             "path": dest.path,
                             "name": url.lastPathComponent,
                             "mimeType": "image/" + url.pathExtension,
-                            "isLivePhoto": false
+                            "isLivePhoto": false,
                         ])
+                        lock.unlock()
                     }
                     group.leave()
                 }
@@ -698,7 +1142,11 @@ public class LivePhotoPlugin: CAPPlugin, PHPickerViewControllerDelegate {
         }
     }
 
-    private func extractLivePhotoVideo(assetIdentifier: String, tempDir: URL, completion: @escaping (String?) -> Void) {
+    private func extractLivePhotoVideo(
+        assetIdentifier: String,
+        tempDir: URL,
+        completion: @escaping (String?) -> Void
+    ) {
         let fetchResult = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
         guard let asset = fetchResult.firstObject else {
             completion(nil)
@@ -709,23 +1157,28 @@ public class LivePhotoPlugin: CAPPlugin, PHPickerViewControllerDelegate {
         guard let videoResource = resources.first(where: {
             $0.type == .pairedVideo || $0.uniformTypeIdentifier == "com.apple.quicktime-movie"
         }) else {
+            // Live Photo without video resource (damaged) — skip
             completion(nil)
             return
         }
 
         let dest = tempDir.appendingPathComponent(UUID().uuidString + ".mov")
         let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = true
+        options.isNetworkAccessAllowed = true // Download from iCloud if needed
 
         PHAssetResourceManager.default().writeData(for: videoResource, toFile: dest, options: options) { error in
-            completion(error == nil ? dest.path : nil)
+            if let error = error {
+                print("LivePhotoPlugin: Failed to extract video: \(error.localizedDescription)")
+                completion(nil)
+            } else {
+                completion(dest.path)
+            }
         }
     }
 }
 ```
 
-**Step 2: Create Objective-C bridge**
-
+**Objective-C bridge:**
 ```objc
 // frontend/ios/App/App/LivePhotoPlugin.m
 #import <Capacitor/Capacitor.h>
@@ -735,29 +1188,21 @@ CAP_PLUGIN(LivePhotoPlugin, "LivePhotoPlugin",
 )
 ```
 
-**Step 3: Add photo library usage description to Info.plist**
-
-Add to `frontend/ios/App/App/Info.plist`:
+**Info.plist addition:**
 ```xml
 <key>NSPhotoLibraryUsageDescription</key>
 <string>Photo Frame needs access to your photos to upload them to the slideshow.</string>
 ```
 
-**Step 4: Commit**
-
-```
-feat: add custom iOS plugin for Live Photo video extraction
-```
+**Commit:** `feat: add iOS Live Photo plugin with PHAssetResource video extraction`
 
 ---
 
-### Task 7: Create TypeScript wrapper for the native plugin
+### Task 5.2: Create TypeScript wrapper
 
 **Files:**
 - Create: `frontend/src/native/livePhotoPlugin.ts`
 - Create: `frontend/src/native/platform.ts`
-
-**Step 1: Create platform detection utility**
 
 ```typescript
 // frontend/src/native/platform.ts
@@ -775,8 +1220,6 @@ export function isAndroid(): boolean {
   return Capacitor.getPlatform() === "android";
 }
 ```
-
-**Step 2: Create TypeScript wrapper for Live Photo plugin**
 
 ```typescript
 // frontend/src/native/livePhotoPlugin.ts
@@ -798,37 +1241,47 @@ const LivePhotoPlugin = registerPlugin<LivePhotoPluginInterface>("LivePhotoPlugi
 export default LivePhotoPlugin;
 ```
 
-**Step 3: Commit**
-
-```
-feat: add TypeScript wrapper for Live Photo native plugin
-```
+**Commit:** `feat: add TypeScript wrapper for iOS Live Photo plugin`
 
 ---
 
-### Task 8: Integrate native picker into Upload page
+### Task 5.3: Test on physical iOS device
 
-When running in Capacitor, the "Choose Files" button uses the native photo picker instead of the HTML file input.
+**Live Photos are not available in the iOS Simulator.** You must test on a real device.
+
+1. Connect iPhone to Mac via USB
+2. In Xcode, select the physical device as build target
+3. Build and run (you may need to trust the developer profile on the device: Settings > General > Device Management)
+4. Navigate to Upload page
+5. Tap "Choose Files" — native picker should appear
+6. Select a Live Photo — verify it extracts the MOV and uploads as video
+7. Select a regular photo — verify it uploads normally
+8. Select a video — verify it uploads normally
+9. Cancel the picker — verify no error, returns to upload page
+
+---
+
+## Phase 6: Upload Page — Native Picker Integration
+
+### Task 6.1: Add native file upload function to API client
+
+The native picker returns file paths on the device filesystem. We need to read these paths into Blobs and upload via the existing FormData/XHR pipeline.
 
 **Files:**
-- Modify: `frontend/src/pages/UploadPage.tsx`
-- Modify: `frontend/src/api/client.ts` (add upload-from-path method)
-
-**Step 1: Add a native file upload method to the API client**
-
-The native picker returns file paths, not `File` objects. We need a method that reads native file paths and uploads them.
+- Modify: `frontend/src/api/client.ts`
 
 ```typescript
-// Add to frontend/src/api/client.ts
-
-// Upload files from native file paths (Capacitor only)
+/**
+ * Upload files from native file paths (Capacitor only).
+ * Reads each path into a Blob via fetch(), then uploads through FormData.
+ */
 export async function uploadNativeFiles(
   files: Array<{ path: string; name: string; mimeType: string }>,
   onProgress?: (percent: number) => void,
 ): Promise<Media[]> {
-  // Read each file path into a Blob, then upload via FormData
   const form = new FormData();
   for (const f of files) {
+    // Capacitor WebView can fetch() local file paths
     const response = await fetch(f.path);
     const blob = await response.blob();
     form.append("files", blob, f.name);
@@ -855,425 +1308,241 @@ export async function uploadNativeFiles(
 }
 ```
 
-Note: On iOS, Capacitor file paths (e.g., `/tmp/...`) are accessible via the WebView's `fetch()`. If this doesn't work, use `@capacitor/filesystem` to read the file as base64 instead.
+**Edge case:** If `fetch(f.path)` fails (OS cleaned up temp file), the error propagates to the UI via the existing error handling in UploadPage.
 
-**Step 2: Update UploadPage to use native picker when available**
+**Fallback plan:** If `fetch()` can't read Capacitor temp paths (unlikely but possible), use `@capacitor/filesystem` plugin to read as base64 and convert to Blob. Don't implement this upfront — only if the fetch approach fails during testing.
+
+**Commit:** `feat: add native file upload function for Capacitor`
+
+---
+
+### Task 6.2: Integrate native picker into UploadPage
+
+**Files:**
+- Modify: `frontend/src/pages/UploadPage.tsx`
+
+**Changes:**
+
+1. Import platform detection and native picker
+2. Add `handleNativePick()` callback
+3. Modify "Choose Files" button to use native picker on iOS
+4. Hide drag-and-drop on native (not useful on mobile)
+5. Update description text for mobile
 
 ```tsx
-// frontend/src/pages/UploadPage.tsx — add import and modify choose button
-import { isNative } from "../native/platform";
+// Add imports
+import { isNative, isIOS } from "../native/platform";
 import LivePhotoPlugin from "../native/livePhotoPlugin";
 import { uploadNativeFiles } from "../api/client";
 
-// Add to UploadPage component body:
+// Add handler inside component
+const [nativeProgress, setNativeProgress] = useState<number | null>(null);
+
 const handleNativePick = useCallback(async () => {
   try {
     const result = await LivePhotoPlugin.pickMedia({ maxItems: 20 });
-    if (result.files.length === 0) return;
+    if (result.files.length === 0) return; // User cancelled
 
     setStatus("uploading");
     setErrorMsg("");
     try {
-      const uploaded = await uploadNativeFiles(result.files, (p) => {
-        // We need direct progress callback — hook into usePhotos or set state directly
-      });
+      const uploaded = await uploadNativeFiles(
+        result.files,
+        setNativeProgress,
+      );
       setUploadedCount(uploaded.length);
       setStatus("done");
+      setNativeProgress(null);
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : "Upload failed");
       setStatus("error");
+      setNativeProgress(null);
     }
   } catch (e) {
-    setErrorMsg(e instanceof Error ? e.message : "Failed to pick files");
+    // Plugin error (e.g., permission denied)
+    setErrorMsg(e instanceof Error ? e.message : "Could not open photo picker");
     setStatus("error");
   }
 }, []);
 
-// In the JSX — replace the choose button:
+// Modify button onClick
 <button
   onClick={() => {
-    if (isNative()) {
+    if (isIOS()) {
       handleNativePick();
     } else {
-      fileInputRef.current?.click();
+      fileInputRef.current?.click(); // Android + Web: HTML file input
     }
   }}
   className="inline-flex items-center rounded-xl bg-copper px-6 py-3 text-sm font-semibold text-ink hover:bg-copper-light transition-colors"
 >
   Choose Files
 </button>
-```
 
-**Step 3: Hide drag-and-drop zone on native (not useful on mobile)**
+// Use nativeProgress for progress display (falls back to uploadProgress for web)
+const displayProgress = isNative() ? nativeProgress : uploadProgress;
 
-Wrap the drag event handlers so they only apply on web:
-
-```tsx
+// Conditional drag-and-drop (disabled on native)
 onDragOver={isNative() ? undefined : (e) => { e.preventDefault(); setDragOver(true); }}
 onDragLeave={isNative() ? undefined : () => setDragOver(false)}
 onDrop={isNative() ? undefined : onDrop}
-```
 
-Update the description text:
-```tsx
+// Mobile-friendly description text
 <p className="text-sm text-warm-gray mb-6">
-  {isNative() ? "Photos, Videos, and Live Photos" : "JPG, PNG, WEBP, MP4, MOV — up to 200MB"}
+  {isNative()
+    ? "Photos, Videos, and Live Photos"
+    : "JPG, PNG, WEBP, MP4, MOV — up to 200MB"}
 </p>
 ```
 
-**Step 4: Build and test on iOS simulator**
+**Edge cases:**
+- User cancels picker → `result.files.length === 0`, no-op (no error shown)
+- Permission denied → `LivePhotoPlugin.pickMedia()` rejects, caught in outer try/catch, shows error
+- Upload fails → inner try/catch shows error, doesn't leave UI in broken state
+- Progress tracking → XHR onprogress works with Blob payloads, same as web
 
-```bash
-cd frontend
-VITE_SERVER_BASE=http://home-pc npm run build
-npx cap sync
-npx cap open ios
-# Run on simulator in Xcode
-```
-
-**Step 5: Commit**
-
-```
-feat: integrate native photo picker with Live Photo support into upload page
-```
+**Commit:** `feat: integrate native photo picker with Live Photo support on iOS`
 
 ---
 
-## Phase 5: Android Support
+### Task 6.3: Verify Android uses HTML file input
 
-### Task 9: Android photo/video picker
+On Android, the HTML `<input type="file">` works well in Capacitor WebView. When users select a Motion Photo JPEG, it uploads as-is, and the backend (Phase 1) extracts the embedded video automatically.
 
-Android Motion Photos are handled server-side (Task 4-5), so no native plugin is needed. The HTML file input works fine in Android's Capacitor WebView — when a user uploads a Motion Photo JPEG, the backend detects and extracts the embedded video automatically.
+No code changes needed — the `isIOS()` check in Task 6.2 already falls through to `fileInputRef.current?.click()` on Android and web.
 
-**Files:**
-- Modify: `frontend/src/pages/UploadPage.tsx` (platform-specific picker)
+**Verify:** Build and run on Android emulator, open upload page, use file picker.
 
-**Step 1: Use HTML file input on Android**
-
-On Android, the HTML `<input type="file">` works well in the Capacitor WebView. When a user selects a Motion Photo JPEG, it uploads as-is, and the backend's `extract_motion_video()` handles the rest.
-
-```typescript
-// In UploadPage.tsx choose button handler:
-onClick={() => {
-  if (isIOS()) {
-    handleNativePick();  // iOS: use native picker for Live Photos
-  } else {
-    fileInputRef.current?.click();  // Android + Web: HTML file input
-  }
-}}
-```
-
-**Step 2: Commit**
-
-```
-feat: use HTML file input on Android (Motion Photos extracted server-side)
-```
+**Commit (if fixes needed):** `fix: adjust upload page for Android`
 
 ---
 
-## Phase 6: Share Extension
+### Task 6.4: Frontend test updates
 
-### Task 10: iOS Share Extension
+Update existing UploadPage tests to handle the new native picker code paths. The `isNative()` and `isIOS()` functions return `false` in test environments (jsdom), so existing web-mode tests should still pass.
 
-Allow "Share to Photo Frame" from the iOS share sheet. This is the most complex native piece.
+Add tests for:
+- `isNative()` returns `false` in jsdom → drag-and-drop handlers are active
+- `uploadNativeFiles()` function (unit test with mocked fetch)
 
-**Files:**
-- Create: `frontend/ios/ShareExtension/` (new Xcode target)
-- Modify: `frontend/ios/App/App.entitlements` (App Groups)
+**Run:** `docker compose exec frontend npm run test`
+**Expected:** All pass.
 
-**Note:** This task requires manual Xcode work that can't be fully scripted. High-level steps:
-
-**Step 1: Add Share Extension target in Xcode**
-
-1. Open `frontend/ios/App.xcworkspace` in Xcode
-2. File > New > Target > Share Extension
-3. Name: "ShareExtension", language: Swift
-4. Configure App Group: `group.com.flexoptix.photoframe` on both main app and extension
-5. Set extension's activation rule to accept images and videos
-
-**Step 2: Implement Share Extension**
-
-The share extension receives shared media, saves files to the App Group shared container, then opens the main app via URL scheme (`photoframe://shared`).
-
-```swift
-// frontend/ios/ShareExtension/ShareViewController.swift
-import UIKit
-import Social
-import MobileCoreServices
-import UniformTypeIdentifiers
-
-class ShareViewController: SLComposeServiceViewController {
-    override func didSelectPost() {
-        guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
-            extensionContext?.completeRequest(returningItems: nil)
-            return
-        }
-
-        let group = DispatchGroup()
-        let sharedDir = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: "group.com.flexoptix.photoframe")!
-            .appendingPathComponent("shared")
-
-        try? FileManager.default.createDirectory(at: sharedDir, withIntermediateDirectories: true)
-
-        for item in items {
-            guard let attachments = item.attachments else { continue }
-            for provider in attachments {
-                if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
-                    group.enter()
-                    provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
-                        if let url = url {
-                            let dest = sharedDir.appendingPathComponent(UUID().uuidString + ".mov")
-                            try? FileManager.default.copyItem(at: url, to: dest)
-                        }
-                        group.leave()
-                    }
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                    group.enter()
-                    provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, _ in
-                        if let url = url {
-                            let dest = sharedDir.appendingPathComponent(UUID().uuidString + "." + url.pathExtension)
-                            try? FileManager.default.copyItem(at: url, to: dest)
-                        }
-                        group.leave()
-                    }
-                }
-            }
-        }
-
-        group.notify(queue: .main) {
-            // Open main app to handle upload
-            if let url = URL(string: "photoframe://shared") {
-                _ = self.openURL(url)
-            }
-            self.extensionContext?.completeRequest(returningItems: nil)
-        }
-    }
-
-    @objc func openURL(_ url: URL) -> Bool {
-        var responder: UIResponder? = self
-        while responder != nil {
-            if let application = responder as? UIApplication {
-                return application.perform(#selector(openURL(_:)), with: url) != nil
-            }
-            responder = responder?.next
-        }
-        return false
-    }
-}
-```
-
-**Step 3: Handle URL scheme in main app**
-
-Register `photoframe://` URL scheme in Info.plist, then handle in `AppDelegate.swift`:
-
-```swift
-// In AppDelegate.swift — handle incoming URL
-func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-    if url.scheme == "photoframe" && url.host == "shared" {
-        // Notify the WebView to check shared container
-        NotificationCenter.default.post(name: .init("SharedMediaReceived"), object: nil)
-    }
-    return true
-}
-```
-
-**Step 4: Create Capacitor plugin to read shared files**
-
-```swift
-// frontend/ios/App/App/SharedMediaPlugin.swift
-@objc(SharedMediaPlugin)
-public class SharedMediaPlugin: CAPPlugin {
-    @objc func getSharedFiles(_ call: CAPPluginCall) {
-        let sharedDir = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: "group.com.flexoptix.photoframe")!
-            .appendingPathComponent("shared")
-
-        guard let files = try? FileManager.default.contentsOfDirectory(at: sharedDir, includingPropertiesForKeys: nil) else {
-            call.resolve(["files": []])
-            return
-        }
-
-        var result: [[String: String]] = []
-        for file in files {
-            result.append([
-                "path": file.path,
-                "name": file.lastPathComponent,
-                "mimeType": file.pathExtension == "mov" ? "video/quicktime" : "image/\(file.pathExtension)"
-            ])
-        }
-        call.resolve(["files": result])
-    }
-
-    @objc func clearSharedFiles(_ call: CAPPluginCall) {
-        let sharedDir = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: "group.com.flexoptix.photoframe")!
-            .appendingPathComponent("shared")
-
-        if let files = try? FileManager.default.contentsOfDirectory(at: sharedDir, includingPropertiesForKeys: nil) {
-            for file in files {
-                try? FileManager.default.removeItem(at: file)
-            }
-        }
-        call.resolve()
-    }
-}
-```
-
-**Step 5: Handle shared files in the React app**
-
-Listen for the `appUrlOpen` event in the app and auto-upload shared files:
-
-```typescript
-// frontend/src/native/sharedMedia.ts
-import { registerPlugin } from "@capacitor/core";
-import { App as CapApp } from "@capacitor/app";
-
-interface SharedMediaPluginInterface {
-  getSharedFiles(): Promise<{ files: Array<{ path: string; name: string; mimeType: string }> }>;
-  clearSharedFiles(): Promise<void>;
-}
-
-const SharedMediaPlugin = registerPlugin<SharedMediaPluginInterface>("SharedMediaPlugin");
-
-export async function checkAndUploadSharedFiles(
-  uploadFn: (files: Array<{ path: string; name: string; mimeType: string }>) => Promise<void>
-) {
-  const result = await SharedMediaPlugin.getSharedFiles();
-  if (result.files.length > 0) {
-    await uploadFn(result.files);
-    await SharedMediaPlugin.clearSharedFiles();
-  }
-}
-
-export function listenForSharedMedia(
-  uploadFn: (files: Array<{ path: string; name: string; mimeType: string }>) => Promise<void>
-) {
-  CapApp.addListener("appUrlOpen", async (data) => {
-    if (data.url.startsWith("photoframe://shared")) {
-      await checkAndUploadSharedFiles(uploadFn);
-    }
-  });
-}
-```
-
-**Step 6: Commit**
-
-```
-feat: add iOS share extension for receiving photos/videos
-```
-
----
-
-### Task 11: Android Share Target
-
-Android share targets are simpler — just intent filters in the manifest.
-
-**Files:**
-- Modify: `frontend/android/app/src/main/AndroidManifest.xml`
-- Create: `frontend/android/app/src/main/java/.../ShareReceiverActivity.java`
-
-**Step 1: Add intent filter to AndroidManifest.xml**
-
-```xml
-<!-- Inside the main <activity> tag -->
-<intent-filter>
-    <action android:name="android.intent.action.SEND" />
-    <action android:name="android.intent.action.SEND_MULTIPLE" />
-    <category android:name="android.intent.category.DEFAULT" />
-    <data android:mimeType="image/*" />
-    <data android:mimeType="video/*" />
-</intent-filter>
-```
-
-**Step 2: Handle received intent in the Capacitor activity**
-
-Use `@capacitor/app`'s `appUrlOpen` event or a custom plugin to read the intent extras and extract file URIs.
-
-**Step 3: Commit**
-
-```
-feat: add Android share target for receiving photos/videos
-```
+**Commit:** `test: update upload page tests for native picker integration`
 
 ---
 
 ## Phase 7: Build & Distribution
 
-### Task 12: Create build scripts
+### Task 7.1: Create mobile build script
 
 **Files:**
 - Create: `scripts/build-mobile.sh`
-- Modify: `frontend/.env.production` (or create)
-
-**Step 1: Create production env file**
-
-```bash
-# frontend/.env.mobile
-VITE_SERVER_BASE=http://home-pc
-```
-
-**Step 2: Create build script**
 
 ```bash
 #!/usr/bin/env bash
-# scripts/build-mobile.sh — Build mobile app
+# Build the mobile app for iOS and Android.
+# Runs on Mac host (not Docker) — requires Xcode and Android Studio.
 set -euo pipefail
 
 cd "$(dirname "$0")/../frontend"
 
-echo "Building web assets for mobile..."
+echo "==> Building web assets with mobile base URL..."
 VITE_SERVER_BASE=http://home-pc npx vite build
 
-echo "Syncing with native projects..."
+echo "==> Syncing with native projects..."
 npx cap sync
 
-echo "Done. Open in Xcode/Android Studio:"
-echo "  npx cap open ios"
-echo "  npx cap open android"
+echo ""
+echo "Done. Next steps:"
+echo "  iOS:     npx cap open ios     (then build in Xcode)"
+echo "  Android: npx cap open android (then build in Android Studio)"
 ```
 
-**Step 3: Commit**
-
-```
-feat: add mobile build script
-```
+**Commit:** `feat: add mobile build script`
 
 ---
 
-## Implementation Order & Dependencies
+### Task 7.2: App icon (optional but recommended)
+
+Even for personal use, a recognizable icon helps find the app on the home screen.
+
+Use the existing "Gallery After Dark" aesthetic — a simple copper-toned frame icon on a dark background.
+
+**iOS:** Replace `frontend/ios/App/App/Assets.xcassets/AppIcon.appiconset/` contents
+**Android:** Replace `frontend/android/app/src/main/res/mipmap-*/` contents
+
+Can be done manually in Xcode (drag into asset catalog) and Android Studio.
+
+---
+
+## Phase 8: Share Extension (Deferred)
+
+Share extensions are complex (especially iOS — separate process, App Groups, URL schemes). Defer to a follow-up PR after the core upload flow is working.
+
+### Task 8.1: iOS Share Extension (future)
+
+High-level steps documented here for reference:
+1. Add Share Extension target in Xcode (separate process)
+2. Configure App Group `group.com.flexoptix.photoframe` on both main app and extension
+3. Extension receives shared media, saves to App Group shared container
+4. Extension opens main app via `photoframe://shared` URL scheme
+5. Main app reads shared files, uploads them
+6. TypeScript: listen for `appUrlOpen` event via `@capacitor/app`
+
+### Task 8.2: Android Share Target (future)
+
+1. Add intent filters to `AndroidManifest.xml` for `SEND` and `SEND_MULTIPLE` with image/* and video/*
+2. Handle incoming intent in the Capacitor activity
+3. Read shared file URIs, upload them
+
+---
+
+## Implementation Order
 
 ```
-Task 1 (base URL)           ← no deps, do first
-Task 2 (Capacitor init)     ← depends on Task 1
-Task 3 (connectivity guard) ← depends on Task 1
-Task 4 (Motion Photo svc)   ← no deps (backend only), can parallel with 1-3
-Task 5 (Motion Photo upload)← depends on Task 4
-Task 6 (iOS Swift plugin)   ← depends on Task 2
-Task 7 (TS wrapper)         ← depends on Task 6
-Task 8 (upload integration) ← depends on Task 7
-Task 9 (Android picker)     ← depends on Task 2 (trivial — HTML input works)
-Task 10 (iOS share ext)     ← depends on Task 6, complex, can defer
-Task 11 (Android share)     ← depends on Task 2, can defer
-Task 12 (build scripts)     ← depends on Task 2
+Phase 1: Backend Motion Photo extraction (Docker, no native tools needed)
+  1.1 → 1.2 → 1.3 → 1.4 → 1.5
+
+Phase 2: Frontend base URL config (Docker)
+  2.1 → 2.2 → 2.3
+
+Phase 3: Capacitor init (Mac host)
+  3.1 → 3.2 → 3.3 → 3.4 → 3.5
+
+Phase 4: Connectivity guard (Docker for code, Mac for testing)
+  4.1 → 4.2 → 4.3
+
+Phase 5: iOS Live Photo plugin (Mac host + physical device)
+  5.1 → 5.2 → 5.3
+
+Phase 6: Upload page native integration (Docker for code, Mac for testing)
+  6.1 → 6.2 → 6.3 → 6.4
+
+Phase 7: Build & distribution (Mac host)
+  7.1 → 7.2
+
+Phase 8: Share extensions (future)
+  8.1, 8.2
 ```
 
-**Recommended order:** 4 → 5 → 1 → 2 → 3 → 6 → 7 → 8 → 9 → 12 → 10 → 11
-
-Start with the backend Motion Photo service (Tasks 4-5) since it can be developed and tested entirely in Docker with the existing test infrastructure. Then move to frontend/Capacitor work.
-
-Tasks 10-11 (share extensions) are the most complex and can be done as a follow-up phase.
+**Phases 1-2 can be done entirely in Docker** with existing test infrastructure — start here.
+**Phases 3-7 require Mac host** with Xcode and Android Studio.
+**Phase 8 is deferred** to a follow-up.
 
 ---
 
 ## Key Risks & Mitigations
 
-| Risk | Mitigation |
-|------|-----------|
-| Live Photo extraction plugin doesn't work | Test with real Live Photos on physical device early (simulator may not have Live Photos) |
-| `fetch()` can't read Capacitor temp file paths | Fallback: use `@capacitor/filesystem` to read as base64, convert to Blob |
-| iOS share extension sandbox is restrictive | Use App Groups for shared file access, tested early |
-| CORS issues with absolute URLs to home-pc | Backend already allows all origins (CORS not configured = no restriction). If needed, add CORS middleware. |
-| WebSocket won't connect from Capacitor | The WS URL change in Task 1 handles this. Test early. |
-| Motion Photo XMP formats vary across manufacturers | Support Google Pixel (2 formats) + Samsung (2 formats). Log unrecognized formats for future support. Non-fatal: image is still saved even if video extraction fails. |
-| Embedded video too small/corrupt for ffprobe | Wrap in try/except, log warning, skip video creation. Image upload still succeeds. |
+| Risk | Impact | Mitigation |
+|------|--------|-----------|
+| Motion Photo XMP formats vary across manufacturers | Unrecognized format → video not extracted | Support 4 known formats, log unrecognized ones. Non-fatal: image always saved. |
+| Embedded video corrupt / too small for ffprobe | Video processing fails | Wrap in try/except, log warning, image upload still succeeds. |
+| Live Photo extraction plugin doesn't work | Can't upload Live Photos as video from iOS | Test on physical device early (simulator lacks Live Photos). |
+| `fetch()` can't read Capacitor temp file paths | Native upload fails | Fallback: `@capacitor/filesystem` to read as base64, convert to Blob. |
+| `CapacitorHttp` interferes with WebSocket | WS connection broken | CapacitorHttp only patches fetch/XHR, not WebSocket. Verified by research. |
+| CORS issues despite CapacitorHttp | API calls fail | Backend already has `allow_origins=["*"]` as safety net. |
+| iCloud-only photos take long to download | User waits, may think it's stuck | `isNetworkAccessAllowed = true` in PHAssetResourceRequestOptions. Consider adding a "downloading from iCloud" indicator (future). |
+| Large Motion Photo exceeds upload limit | 200MB limit hit by JPEG + embedded video | The 200MB limit applies to the whole file. A Motion Photo with a 3s video is typically 5-15MB total. Not a realistic concern. |
+| Samsung newer SEF trailer format not supported | Video not extracted from newer Samsung phones | Log and skip. Can be added later when we have a test file. Non-fatal. |
+| Duplicate detection edge case: same photo uploaded as Motion Photo and separately as regular JPEG | Two photo records (different content_hash because Motion Photo JPEG includes video bytes) | Acceptable — different files, different hashes. User can delete duplicates manually. |
