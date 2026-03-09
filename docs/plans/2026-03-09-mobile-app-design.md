@@ -1,74 +1,29 @@
-# Mobile App Design — Capacitor Wrapper
+# Live Photo & Motion Photo Support — Design
 
 **Date:** 2026-03-09
-**Goal:** Native iOS/Android app for uploading photos and Live Photos to the photo frame server.
+**Goal:** Enable uploading Live Photos (iOS) and Motion Photos (Android) to the photo frame, with the video component playing in the slideshow.
 
 ## Motivation
 
-iOS Safari strips the video component from Live Photos in the file picker — only the still JPEG is accessible. A native app can access the full Live Photo (HEIC + MOV pair) via platform photo library APIs. Secondary benefit: Share sheet integration ("Share to Photo Frame").
+- **iOS Live Photos**: Safari strips the video component in the file picker — only the still JPEG is accessible from the browser.
+- **Android Motion Photos**: The video is embedded inside the JPEG file. The browser uploads the whole file, but the backend currently ignores the embedded video.
 
-## Approach: Capacitor
+## Solution
 
-Wrap the existing React web frontend in a Capacitor native shell. All existing UI, API client, components, and bug fixes are reused unchanged. Only two native capabilities are added.
+### Android Motion Photos — Server-Side Extraction
+No app needed. The user uploads the Motion Photo JPEG from the browser as usual. The backend detects the embedded video (via XMP metadata or Samsung markers), extracts it, and creates a separate video media record. The video plays in the slideshow using existing video behavior (play, hold first frame until next slide). Works from any browser, any platform.
 
-## What's Reused (unchanged)
-
-- Gallery page (browse, select, delete, bulk delete)
-- Upload page (pick files, upload with progress)
-- Settings page (interval, transition)
-- API client (`client.ts`) — all types, error handling, XHR upload
-- All components (Navbar, PhotoCard, MediaDetailModal, etc.)
-- All styling (Tailwind, dark theme, frosted glass)
-- WebSocket connection for real-time updates
-
-## What's New
-
-### 1. Capacitor Native Shell
-- iOS and Android builds from the same web codebase
-- `@capacitor/core` + `@capacitor/cli` added to the frontend project
-- Native project directories: `ios/` and `android/` under frontend
-
-### 2. Live Photo Video Extraction
-- Use a Capacitor plugin to access the device photo library with Live Photo support
-- Extract the MOV component from Live Photos
-- Upload as a regular video through the existing upload API
-- Live Photos appear as ~3s videos in the slideshow (play, then hold first frame)
-
-### 3. Share Extension
-- "Share to Photo Frame" appears in iOS/Android share sheets
-- Receives photos and videos from other apps (e.g., camera roll)
-- Sends selected media to the upload API
-- Live Photos shared this way also extract the MOV component
-
-### 4. Connectivity Guard
-- On launch, pings `GET http://home-pc/api/settings`
-- If unreachable: shows a full-screen message — "Connect to your home network to use Photo Frame" with a retry button
-- If reachable: proceeds to the app normally
-- Server address is hardcoded to `http://home-pc`
-
-### 5. API Base URL Configuration
-- Web build: base URL stays `/api` (relative, proxied by Vite/nginx)
-- App build: base URL becomes `http://home-pc/api` (absolute)
-- Controlled via environment variable at build time (`VITE_API_BASE`)
-- `client.ts` changes: `const API_BASE = import.meta.env.VITE_API_BASE || "/api"`
-- Same change for asset URLs (thumbnails, originals, display files)
+### iOS Live Photos — iOS Shortcut
+No app needed. An iOS Shortcut extracts the MOV from Live Photos and uploads it to the backend API. Can be triggered from the home screen or the share sheet. The web UI handles everything else (gallery, settings, deletion).
 
 ## What's NOT Included
-
-- No slideshow page in the app (slideshow runs on the Pi)
+- No native mobile app (Capacitor, React Native, etc.)
+- No App Store / Play Store distribution
 - No push notifications
-- No offline queue — uploads require server connectivity
-- No authentication (home network only, same as web)
+- No offline support
 
-## Pages in the App
-
-The app includes all existing pages except SlideshowPage:
-- **Gallery** — browse, select, delete, "show in slideshow"
-- **Upload** — pick from gallery (with Live Photo support), upload with progress
-- **Settings** — slideshow interval, transition type
-
-## Build & Distribution
-
-- iOS: Xcode build, distribute via TestFlight or direct install
-- Android: Android Studio build, distribute via APK sideload
-- No App Store / Play Store submission planned (personal use)
+## Why Not a Native App?
+Originally explored Capacitor (wrapping the web UI in a native shell). Eliminated because:
+- Android: Motion Photo extraction works server-side, no native code needed
+- iOS: Live Photo extraction needs native APIs, but an iOS Shortcut provides this without building/signing/maintaining an app
+- No developer accounts needed, no 7-day signing limits, no sideloading
