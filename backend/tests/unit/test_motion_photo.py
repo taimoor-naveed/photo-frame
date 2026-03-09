@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from app.services.motion_photo import detect_motion_photo
+from app.services.motion_photo import detect_motion_photo, extract_motion_video
 
 # --- Constants ---
 
@@ -180,3 +180,46 @@ class TestDetectMotionPhoto:
         )
         data = _make_jpeg_with_xmp(xmp)
         assert detect_motion_photo(data) is None
+
+
+class TestExtractMotionVideo:
+    """Tests for extract_motion_video()."""
+
+    def test_extract_from_pixel_older(self):
+        """Pixel older format yields the embedded video bytes."""
+        data = _make_pixel_older(FAKE_VIDEO)
+        result = extract_motion_video(data)
+        assert result == FAKE_VIDEO
+
+    def test_extract_from_pixel_newer(self):
+        """Pixel newer format yields the embedded video bytes."""
+        data = _make_pixel_newer(FAKE_VIDEO)
+        result = extract_motion_video(data)
+        assert result == FAKE_VIDEO
+
+    def test_extract_from_samsung(self):
+        """Samsung format yields the embedded video bytes."""
+        data = _make_samsung_older(FAKE_VIDEO)
+        result = extract_motion_video(data)
+        assert result == FAKE_VIDEO
+
+    def test_plain_jpeg_returns_none(self):
+        """A plain JPEG with no Motion Photo returns None."""
+        data = _make_plain_jpeg()
+        assert extract_motion_video(data) is None
+
+    def test_empty_bytes_returns_none(self):
+        """Empty input returns None."""
+        assert extract_motion_video(b"") is None
+
+    def test_tiny_video_returns_none(self):
+        """Motion Photo with video smaller than 8 bytes returns None."""
+        tiny_video = b"\x00\x01\x02"  # 3 bytes, below _MIN_VIDEO_SIZE
+        # Pixel older format embeds the tiny video but detect should reject it
+        data = _make_pixel_older(tiny_video)
+        assert extract_motion_video(data) is None
+
+    def test_samsung_marker_at_very_end_returns_none(self):
+        """Samsung marker present but nothing after it returns None."""
+        data = JPEG_SOI + JPEG_EOI + b"MotionPhoto_Data"
+        assert extract_motion_video(data) is None
