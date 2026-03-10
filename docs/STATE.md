@@ -1,11 +1,11 @@
 # Photo Frame — Project State
 
-## Current Status: Motion Photo Support (in progress)
+## Current Status: Motion Photo Support (complete)
 
-Branch: `feature/live-motion-photo-support`
+Branch: `feature/live-motion-photo-support` — ready to merge to main.
 
 Motion Photo detection + extraction: **done**. QA tested, bugs fixed, all tests passing.
-iOS upload shortcut / mobile upload page: **not started** — next task.
+iOS Shortcut: **in progress (user-side)** — user is building the shortcut manually on iPhone. Known issue: iOS Shortcuts "Encode Media" output can contaminate subsequent loop iterations (variable scoping bug). Workaround: use separate loops for Live Photos, normal photos, and videos instead of one mixed loop.
 
 ## Test Counts
 
@@ -66,8 +66,8 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
 ## Next Steps
 
-1. **Mobile upload page** — build a simple web-based upload page at `/upload` (mobile-friendly, dark theme) so iPhone users can upload photos/videos from Safari without needing an iOS Shortcut. Backend serves a standalone HTML page.
-2. **iOS Shortcut (optional)** — step-by-step guide exists at `docs/ios-shortcut-setup.md`. Can be created manually on iPhone if the web upload page isn't sufficient for Live Photo video extraction.
+1. **Merge Motion Photo branch** — `feature/live-motion-photo-support` is complete. Merge to main.
+2. **iOS Shortcut** — user is building manually. Needs separate loops for Live Photos vs normal photos vs videos to avoid variable contamination. Backend handles everything else automatically.
 3. **Deploy** — deploy Motion Photo support to prod, test with real Android Motion Photos and iOS Live Photos.
 
 ---
@@ -238,7 +238,8 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 
 ## Known Limitations / Future Work
 
-- [ ] **Originals are re-encoded on upload** — `process_image()` decodes, EXIF-rotates, and re-saves images (quality 95). HEIC files are converted to JPEG. This loses the original raw bytes, embedded data (Live Photo motion, depth maps), and introduces generation loss. Future: save raw bytes as the original, generate a separate browser-friendly display version.
+- [x] ~~**Originals are re-encoded on upload**~~ — Motion Photo support now extracts embedded video before image processing. Live Photos uploaded via iOS Shortcut (with "Encode Media") send the Motion Photo container, and the backend extracts the video automatically.
+- [ ] **Regular photos still re-encoded** — `process_image()` decodes, EXIF-rotates, and re-saves images (quality 95). HEIC→JPEG conversion. Loses raw bytes and introduces generation loss.
 - **No user auth** — single-user photo frame, no login needed
 - **No image editing** — crop, rotate, filters not implemented
 - **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale
