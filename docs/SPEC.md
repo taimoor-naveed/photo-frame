@@ -93,12 +93,12 @@ No migrations — clean-slate deploy. Tables auto-created via `Base.metadata.cre
 
 ### Future: Preserve Original Uploads
 
-When implementing raw-byte preservation, watch for these gotchas discovered during a prior attempt:
+Gotchas discovered during a prior attempt:
 
-- **`displayUrl()` null safety**: If originals are raw bytes (possibly HEIC, un-rotated JPEG), the frontend must always have a browser-friendly display version to show. But `display_filename` is null during video background processing. `displayUrl()` needs a fallback to `originalUrl()` for that window, or display version must be set before the response.
-- **Small video re-encoding**: Don't run all browser-compatible videos through ffmpeg just to generate a display version. Small videos (within 1024x600) don't need re-encoding — it's expensive and introduces quality loss.
-- **Width/height vs raw file**: After EXIF transpose, DB dimensions reflect the display orientation, but raw bytes have pre-rotation pixel dimensions. This is correct for display but may confuse anyone inspecting the original file.
-- **All videos start as "processing"**: If every video needs a display version generated, they all start as `processing_status="processing"`. This changes frontend behavior (slideshow skips processing items).
+- **`displayUrl()` null safety**: Originals may be raw HEIC or un-rotated JPEG. `display_filename` is null during video background processing — `displayUrl()` needs a fallback to `originalUrl()` for that window.
+- **Small video re-encoding**: Don't run all browser-compatible videos through ffmpeg just to generate a display version. Small videos (within 1024x600) don't need it.
+- **Width/height vs raw file**: After EXIF transpose, DB dimensions reflect display orientation, but raw bytes have pre-rotation pixel dimensions.
+- **All videos start as "processing"**: If every video needs a display version, they all start as `processing_status="processing"`, changing frontend behavior (slideshow skips processing items).
 
 ### Supported Formats
 - **Photos**: .jpg, .jpeg, .png, .webp, .heic

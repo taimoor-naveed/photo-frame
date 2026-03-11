@@ -25,6 +25,7 @@ Built for a Raspberry Pi 4 with a 1024x600 touchscreen, but works on any device 
 **Upload**
 - Drag-and-drop or file picker with progress bar
 - HEIC/HEIF support (iPhone photos) — auto-converted to JPEG
+- Motion Photo / Live Photo support — embedded video automatically extracted from Samsung, Pixel, and iPhone uploads
 - Duplicate detection via SHA-256 content hashing
 
 **Video Processing**
@@ -139,7 +140,7 @@ Browser ──> nginx (:80)                  # Production
 | Photos | .jpg, .jpeg, .png, .webp, .heic | 200 MB |
 | Videos | .mp4, .mov, .webm | 200 MB |
 
-HEIC photos (iPhone) are auto-converted to JPEG. Videos with non-browser codecs (HEVC, ProRes) are automatically transcoded to H.264.
+HEIC photos (iPhone) are auto-converted to JPEG. Motion Photos (Samsung/Pixel) and Live Photos (iPhone via iOS Shortcut) have their embedded video automatically extracted. Videos with non-browser codecs (HEVC, ProRes) are automatically transcoded to H.264.
 
 ## Running Tests
 
