@@ -18,8 +18,8 @@ iOS Shortcut: **in progress (user-side)** — user is building the shortcut manu
 3. ~~**Cross-type dedup: standalone video can match extracted Motion Photo**~~ — **BY DESIGN**
    - Same bytes = same video = correct duplicate. No change needed.
 
-4. **No automated test for `-map` flag fix** (iPhone only, `video.py`)
-   - The ffmpeg `-map 0:v:0 -map 0:a:0?` fix for iPhone `.mov` metadata streams has no test coverage. Would need a multi-stream video fixture to test properly.
+4. ~~**No automated test for `-map` flag fix**~~ — **SKIPPED** (not reproducible)
+   - The ffmpeg `-map 0:v:0 -map 0:a:0?` fix for iPhone `.mov` metadata streams (`mebx`) was proven manually on real iPhone files. The `mebx` stream type is Apple-proprietary and cannot be synthesized with standard ffmpeg — ffmpeg's default behavior already skips data/metadata streams gracefully, so no synthetic fixture can demonstrate the failure. The fix remains in place as defense-in-depth.
 
 5. **`generate_video_thumbnail()` missing `-map` flag** (`video.py` line 64-76)
    - All transcode/scale functions use `-map 0:v:0 -map 0:a:0?` to skip metadata streams, but `generate_video_thumbnail()` does not. Low risk (`-vframes 1` typically grabs the default video stream fine), but should add `-map 0:v:0` for consistency and defense-in-depth.
