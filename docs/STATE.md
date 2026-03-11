@@ -2,10 +2,24 @@
 
 ## Current Status: Motion Photo Support (complete)
 
-Branch: `feature/live-motion-photo-support` — ready to merge to main.
+Branch: `feature/live-motion-photo-support` — **not ready to merge**, has known issues to fix first.
 
 Motion Photo detection + extraction: **done**. QA tested, bugs fixed, all tests passing.
-iOS Shortcut: **in progress (user-side)** — user is building the shortcut manually on iPhone. Known issue: iOS Shortcuts "Encode Media" output can contaminate subsequent loop iterations (variable scoping bug). Workaround: use separate loops for Live Photos, normal photos, and videos instead of one mixed loop.
+iOS Shortcut: **in progress (user-side)** — user is building the shortcut manually on iPhone. Workaround for variable contamination: use separate loops for Live Photos, normal photos, and videos.
+
+### Issues to fix before merging
+
+1. **Orphaned files on DB commit failure** (Android only, `media.py` ~line 198-213)
+   - If `save_video_original()` succeeds (writes video + thumbnail to disk) but `db.commit()` fails, the files remain on disk with no DB record. Need try/except around the DB commit that cleans up files on failure.
+
+2. **Broad `except Exception` hides real errors** (Android only, `media.py` ~line 238)
+   - If Motion Photo video extraction fails for any reason (disk full, permission error, etc.), it silently falls back to saving the entire Motion Photo blob as a regular photo. Should at minimum log the exception class distinctly and consider whether disk-level errors should propagate instead of falling back.
+
+3. **Cross-type dedup: standalone video can match extracted Motion Photo** (Android only, `media.py` ~line 183-189)
+   - The content hash for Motion Photos is calculated on the *extracted video* bytes, not the original upload. If someone uploads a standalone `.mp4` that's byte-identical to a previously extracted Motion Photo video, it deduplicates against it and returns the existing record. May be desired behavior, but should be a conscious decision.
+
+4. **No automated test for `-map` flag fix** (iPhone only, `video.py`)
+   - The ffmpeg `-map 0:v:0 -map 0:a:0?` fix for iPhone `.mov` metadata streams has no test coverage. Would need a multi-stream video fixture to test properly.
 
 ## Test Counts
 
@@ -74,16 +88,33 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
 ## Recent Changes
 
-### Motion Photo Support (2026-03-09)
+### Motion Photo / Live Photo Support (2026-03-09)
 
-Android Motion Photos are now automatically detected and extracted during upload. When a JPEG containing an embedded video (Samsung `MotionPhoto_Data` marker or Google Pixel XMP metadata) is uploaded, the backend extracts just the video and saves it as a video media item. The JPEG is discarded.
+Two platforms, two approaches:
 
-- **Detection service**: `backend/app/services/motion_photo.py` — supports Samsung older format, Pixel older (MicroVideoOffset), Pixel newer (MotionPhoto + Item:Length)
+- **Android (Samsung/Pixel)**: Motion Photos are JPEGs with an embedded MP4 appended after the image data. The backend detects and extracts the video automatically during upload — no client-side work needed. The JPEG is discarded; only the video is saved.
+- **iPhone (iOS)**: Live Photos are stored as separate HEIC + MOV files. iOS doesn't send the combined format over HTTP. Solution: iOS Shortcut uses "Encode Media" on Live Photos to produce a Motion Photo container, then uploads it. The backend extracts the video the same way as Android. For regular photos/videos, the Shortcut uploads them directly.
+
+**Backend changes:**
+- **Detection service**: `backend/app/services/motion_photo.py` — supports Samsung older format (`MotionPhoto_Data` marker), Pixel older (MicroVideoOffset XMP), Pixel newer (MotionPhoto + Item:Length XMP)
 - **Upload integration**: `backend/app/routers/media.py` — Motion Photo check before `process_image()`, fallback to image if video extraction fails
 - **Duplicate detection**: SHA-256 of extracted video bytes, deduplicates across uploads
 - **QA fixes**: `rfind()` for Samsung marker (prevents false positive on EXIF metadata), JPEG magic byte check (skips non-JPEG files)
-- **ffmpeg fix**: Added `force_divisible_by=2` to all scale filters in `video.py` (odd dimensions cause encoding failures)
+- **ffmpeg fixes**: Added `force_divisible_by=2` to all scale filters (odd dimensions cause encoding failures). Added `-map 0:v:0 -map 0:a:0?` to all ffmpeg encode commands (iPhone `.mov` files contain extra metadata streams like `mebx` that crash ffmpeg).
 - **Tests**: 21 unit tests (detection + extraction + rfind + non-JPEG rejection), 8 integration tests (Samsung, Pixel older, Pixel newer, corrupt fallback, regular JPEG regression, multi-upload, tiny video fallback, duplicate dedup)
+
+**iOS Shortcut notes:**
+- Must use separate loops for Live Photos, normal photos, and videos — mixing them in one loop causes iOS Shortcuts variable contamination (Encode Media output leaks into subsequent iterations)
+- Guide: `docs/ios-shortcut-setup.md`
+
+**Known issues (from code review):**
+
+| # | Issue | Platform | Severity |
+|---|-------|----------|----------|
+| 1 | Orphaned files on DB commit failure — `save_video_original()` writes to disk, then `db.commit()` fails, no cleanup | Android only | Low — rare, wastes disk |
+| 2 | Broad `except Exception` silently falls back to saving whole blob as photo instead of surfacing error | Android only | Low — safe fallback but hides real errors |
+| 3 | Cross-type dedup — standalone `.mp4` upload can match extracted Motion Photo video by content hash | Android only | Low — arguably correct, needs conscious decision |
+| 4 | No test for `-map` flag fix (needs multi-stream `.mov` fixture) | iPhone only | Low — proven manually |
 
 
 
