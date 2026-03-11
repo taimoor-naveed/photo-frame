@@ -9,8 +9,8 @@ iOS Shortcut: **in progress (user-side)** — user is building the shortcut manu
 
 ### Issues to fix before merging
 
-1. **Orphaned files on DB commit failure** (Android only, `media.py` ~line 198-213)
-   - If `save_video_original()` succeeds (writes video + thumbnail to disk) but `db.commit()` fails, the files remain on disk with no DB record. Need try/except around the DB commit that cleans up files on failure.
+1. ~~**Orphaned files on DB commit failure**~~ — **FIXED**
+   - All 3 upload paths (Motion Photo, image, video) now have try/except around `db.commit()` that rolls back, logs the error with full traceback, and cleans up orphaned files (original + thumbnail + display). 7 new tests in `test_upload_db_commit_failure.py`.
 
 2. **Broad `except Exception` hides real errors** (Android only, `media.py` ~line 238)
    - If Motion Photo video extraction fails for any reason (disk full, permission error, etc.), it silently falls back to saving the entire Motion Photo blob as a regular photo. Should at minimum log the exception class distinctly and consider whether disk-level errors should propagate instead of falling back.
@@ -21,14 +21,17 @@ iOS Shortcut: **in progress (user-side)** — user is building the shortcut manu
 4. **No automated test for `-map` flag fix** (iPhone only, `video.py`)
    - The ffmpeg `-map 0:v:0 -map 0:a:0?` fix for iPhone `.mov` metadata streams has no test coverage. Would need a multi-stream video fixture to test properly.
 
+5. **`generate_video_thumbnail()` missing `-map` flag** (`video.py` line 64-76)
+   - All transcode/scale functions use `-map 0:v:0 -map 0:a:0?` to skip metadata streams, but `generate_video_thumbnail()` does not. Low risk (`-vframes 1` typically grabs the default video stream fine), but should add `-map 0:v:0` for consistency and defense-in-depth.
+
 ## Test Counts
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 163 | All passing |
+| Backend (pytest) | 170 | All passing |
 | Frontend (vitest) | 146 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~509** | **Green** |
+| **Total** | **~516** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 

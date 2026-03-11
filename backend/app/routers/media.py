@@ -208,9 +208,20 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                         processing_status="processing" if (require_transcode_v or needs_scale_v) else "ready",
                         content_hash=video_hash,
                     )
-                    db.add(video_media)
-                    db.commit()
-                    db.refresh(video_media)
+                    try:
+                        db.add(video_media)
+                        db.commit()
+                        db.refresh(video_media)
+                    except Exception:
+                        db.rollback()
+                        logger.error(
+                            "DB commit failed for Motion Photo upload '%s', cleaning up files: %s, %s",
+                            original_name, info_v["filename"], info_v["thumb_filename"],
+                            exc_info=True,
+                        )
+                        (config.ORIGINALS_DIR / info_v["filename"]).unlink(missing_ok=True)
+                        (config.THUMBNAILS_DIR / info_v["thumb_filename"]).unlink(missing_ok=True)
+                        raise
                     results.append(video_media)
 
                     asyncio.create_task(
@@ -260,9 +271,22 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 processing_status="ready",
                 content_hash=content_hash,
             )
-            db.add(media)
-            db.commit()
-            db.refresh(media)
+            try:
+                db.add(media)
+                db.commit()
+                db.refresh(media)
+            except Exception:
+                db.rollback()
+                logger.error(
+                    "DB commit failed for image upload '%s', cleaning up files: %s, %s, %s",
+                    original_name, info["filename"], info["thumb_filename"], info.get("display_filename"),
+                    exc_info=True,
+                )
+                (config.ORIGINALS_DIR / info["filename"]).unlink(missing_ok=True)
+                (config.THUMBNAILS_DIR / info["thumb_filename"]).unlink(missing_ok=True)
+                if info.get("display_filename"):
+                    (config.DISPLAY_DIR / info["display_filename"]).unlink(missing_ok=True)
+                raise
             results.append(media)
 
             asyncio.create_task(
@@ -292,9 +316,20 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
                 processing_status="processing" if (require_transcode or needs_display_scale_check) else "ready",
                 content_hash=content_hash,
             )
-            db.add(media)
-            db.commit()
-            db.refresh(media)
+            try:
+                db.add(media)
+                db.commit()
+                db.refresh(media)
+            except Exception:
+                db.rollback()
+                logger.error(
+                    "DB commit failed for video upload '%s', cleaning up files: %s, %s",
+                    original_name, info["filename"], info["thumb_filename"],
+                    exc_info=True,
+                )
+                (config.ORIGINALS_DIR / info["filename"]).unlink(missing_ok=True)
+                (config.THUMBNAILS_DIR / info["thumb_filename"]).unlink(missing_ok=True)
+                raise
             results.append(media)
 
             asyncio.create_task(
