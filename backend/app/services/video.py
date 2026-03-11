@@ -115,6 +115,7 @@ def transcode_to_h264(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
+            "-map", "0:v:0", "-map", "0:a:0?",
             "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
@@ -143,6 +144,7 @@ def _transcode_with_progress(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
+            "-map", "0:v:0", "-map", "0:a:0?",
             "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
@@ -256,6 +258,7 @@ def scale_video_for_display(
             [
                 "ffmpeg", "-y",
                 "-i", str(video_path),
+                "-map", "0:v:0", "-map", "0:a:0?",
                 "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
                 "-pix_fmt", "yuv420p",
                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
@@ -295,6 +298,7 @@ def scale_video_for_display(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
+            "-map", "0:v:0", "-map", "0:a:0?",
             "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
