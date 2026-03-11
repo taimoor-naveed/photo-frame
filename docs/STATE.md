@@ -15,8 +15,8 @@ iOS Shortcut: **in progress (user-side)** — user is building the shortcut manu
 2. ~~**Broad `except Exception` hides real errors**~~ — **FIXED**
    - Removed the broad `except Exception` that silently fell back to saving Motion Photos as images. If a Motion Photo is detected but the embedded video can't be processed, the upload now fails with a 400 and a clear error message. Infrastructure errors (disk full, DB failure) propagate instead of being swallowed.
 
-3. **Cross-type dedup: standalone video can match extracted Motion Photo** (Android only, `media.py` ~line 183-189)
-   - The content hash for Motion Photos is calculated on the *extracted video* bytes, not the original upload. If someone uploads a standalone `.mp4` that's byte-identical to a previously extracted Motion Photo video, it deduplicates against it and returns the existing record. May be desired behavior, but should be a conscious decision.
+3. ~~**Cross-type dedup: standalone video can match extracted Motion Photo**~~ — **BY DESIGN**
+   - Same bytes = same video = correct duplicate. No change needed.
 
 4. **No automated test for `-map` flag fix** (iPhone only, `video.py`)
    - The ffmpeg `-map 0:v:0 -map 0:a:0?` fix for iPhone `.mov` metadata streams has no test coverage. Would need a multi-stream video fixture to test properly.
