@@ -278,3 +278,4 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 - **No image editing** — crop, rotate, filters not implemented
 - **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale
 - **No offline mode** — requires network connection to backend
+- [ ] **Upload error messages show raw JSON** — `UploadPage.tsx` displays `xhr.responseText` directly, so users see `{"detail":"..."}` instead of the parsed human-readable message. Should parse the JSON and extract the `detail` field.
