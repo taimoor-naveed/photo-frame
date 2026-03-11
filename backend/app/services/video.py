@@ -67,6 +67,7 @@ def generate_video_thumbnail(
             "-y",
             "-ss", str(seek_time),
             "-i", str(video_path),
+            "-map", "0:v:0",
             "-vframes", "1",
             "-q:v", "5",
             str(thumb_path),

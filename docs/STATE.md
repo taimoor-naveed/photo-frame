@@ -2,7 +2,7 @@
 
 ## Current Status: Motion Photo Support (complete)
 
-Branch: `feature/live-motion-photo-support` — **not ready to merge**, has known issues to fix first.
+Branch: `feature/live-motion-photo-support` — **ready to merge**, all known issues resolved.
 
 Motion Photo detection + extraction: **done**. QA tested, bugs fixed, all tests passing.
 iOS Shortcut: **in progress (user-side)** — user is building the shortcut manually on iPhone. Workaround for variable contamination: use separate loops for Live Photos, normal photos, and videos.
@@ -21,8 +21,8 @@ iOS Shortcut: **in progress (user-side)** — user is building the shortcut manu
 4. ~~**No automated test for `-map` flag fix**~~ — **SKIPPED** (not reproducible)
    - The ffmpeg `-map 0:v:0 -map 0:a:0?` fix for iPhone `.mov` metadata streams (`mebx`) was proven manually on real iPhone files. The `mebx` stream type is Apple-proprietary and cannot be synthesized with standard ffmpeg — ffmpeg's default behavior already skips data/metadata streams gracefully, so no synthetic fixture can demonstrate the failure. The fix remains in place as defense-in-depth.
 
-5. **`generate_video_thumbnail()` missing `-map` flag** (`video.py` line 64-76)
-   - All transcode/scale functions use `-map 0:v:0 -map 0:a:0?` to skip metadata streams, but `generate_video_thumbnail()` does not. Low risk (`-vframes 1` typically grabs the default video stream fine), but should add `-map 0:v:0` for consistency and defense-in-depth.
+5. ~~**`generate_video_thumbnail()` missing `-map` flag**~~ — **FIXED**
+   - Added `-map 0:v:0` to `generate_video_thumbnail()` for consistency with all other ffmpeg commands. Ensures the first video stream is explicitly selected, preventing issues with multi-stream iPhone `.mov` files containing metadata streams like `mebx`. New unit test verifies the flag is present in the ffmpeg command.
 
 ## Test Counts
 

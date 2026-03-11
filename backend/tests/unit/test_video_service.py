@@ -213,6 +213,36 @@ def test_scale_video_for_display_invalid_input(tmp_dirs, tmp_path):
         )
 
 
+# ─── -map Flag Tests ───────────────────────────────────────
+
+
+def test_generate_video_thumbnail_uses_map_flag(video_file, tmp_dirs):
+    """generate_video_thumbnail should use -map 0:v:0 to select only the first video stream."""
+    from unittest.mock import patch
+
+    original_run = subprocess.run
+
+    captured_cmds = []
+
+    def spy_run(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args", [])
+        if cmd and cmd[0] == "ffmpeg":
+            captured_cmds.append(cmd)
+        return original_run(*args, **kwargs)
+
+    with patch("app.services.video.subprocess.run", side_effect=spy_run):
+        generate_video_thumbnail(
+            video_file, "thumb_map_test.jpg",
+            thumbnails_dir=tmp_dirs["thumbnails"],
+        )
+
+    assert len(captured_cmds) == 1, "Expected exactly one ffmpeg call for thumbnail"
+    cmd = captured_cmds[0]
+    assert "-map" in cmd, "ffmpeg command should include -map flag"
+    map_idx = cmd.index("-map")
+    assert cmd[map_idx + 1] == "0:v:0", "Should map first video stream"
+
+
 # ─── H.264 Profile Tests ────────────────────────────────────
 
 
