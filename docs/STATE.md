@@ -12,8 +12,8 @@ iOS Shortcut: **in progress (user-side)** — user is building the shortcut manu
 1. ~~**Orphaned files on DB commit failure**~~ — **FIXED**
    - All 3 upload paths (Motion Photo, image, video) now have try/except around `db.commit()` that rolls back, logs the error with full traceback, and cleans up orphaned files (original + thumbnail + display). 7 new tests in `test_upload_db_commit_failure.py`.
 
-2. **Broad `except Exception` hides real errors** (Android only, `media.py` ~line 238)
-   - If Motion Photo video extraction fails for any reason (disk full, permission error, etc.), it silently falls back to saving the entire Motion Photo blob as a regular photo. Should at minimum log the exception class distinctly and consider whether disk-level errors should propagate instead of falling back.
+2. ~~**Broad `except Exception` hides real errors**~~ — **FIXED**
+   - Removed the broad `except Exception` that silently fell back to saving Motion Photos as images. If a Motion Photo is detected but the embedded video can't be processed, the upload now fails with a 400 and a clear error message. Infrastructure errors (disk full, DB failure) propagate instead of being swallowed.
 
 3. **Cross-type dedup: standalone video can match extracted Motion Photo** (Android only, `media.py` ~line 183-189)
    - The content hash for Motion Photos is calculated on the *extracted video* bytes, not the original upload. If someone uploads a standalone `.mp4` that's byte-identical to a previously extracted Motion Photo video, it deduplicates against it and returns the existing record. May be desired behavior, but should be a conscious decision.

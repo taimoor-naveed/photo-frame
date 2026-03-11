@@ -178,81 +178,80 @@ async def upload_media(files: list[UploadFile], db: Session = Depends(get_db)):
             # ─── Motion Photo: extract embedded video ─────────
             video_bytes = extract_motion_video(content)
             if video_bytes:
+                video_name = f"{Path(original_name).stem}_live.mp4"
+                video_hash = hashlib.sha256(video_bytes).hexdigest()
+
+                # Check duplicate on extracted video hash
+                existing_video = db.query(Media).filter(Media.content_hash == video_hash).first()
+                if existing_video:
+                    results.append(existing_video)
+                    continue
+
                 try:
-                    video_name = f"{Path(original_name).stem}_live.mp4"
-                    video_hash = hashlib.sha256(video_bytes).hexdigest()
-
-                    # Check duplicate on extracted video hash
-                    existing_video = db.query(Media).filter(Media.content_hash == video_hash).first()
-                    if existing_video:
-                        results.append(existing_video)
-                        continue
-
                     info_v = save_video_original(video_bytes, video_name)
-                    require_transcode_v = needs_transcode(info_v["codec"])
-                    needs_scale_v = (
-                        not require_transcode_v
-                        and (info_v["width"] > config.DISPLAY_MAX_WIDTH or info_v["height"] > config.DISPLAY_MAX_HEIGHT)
-                    )
+                except (ValueError, Exception) as exc:
+                    raise HTTPException(
+                        400,
+                        f"Motion Photo detected in '{original_name}' but embedded video is invalid: {exc}",
+                    ) from exc
 
-                    video_media = Media(
-                        filename=info_v["filename"],
-                        original_name=video_name,
-                        media_type="video",
-                        width=info_v["width"],
-                        height=info_v["height"],
-                        file_size=info_v["file_size"],
-                        duration=info_v["duration"],
-                        codec=info_v["codec"],
-                        thumb_filename=info_v["thumb_filename"],
-                        processing_status="processing" if (require_transcode_v or needs_scale_v) else "ready",
-                        content_hash=video_hash,
-                    )
-                    try:
-                        db.add(video_media)
-                        db.commit()
-                        db.refresh(video_media)
-                    except Exception:
-                        db.rollback()
-                        logger.error(
-                            "DB commit failed for Motion Photo upload '%s', cleaning up files: %s, %s",
-                            original_name, info_v["filename"], info_v["thumb_filename"],
-                            exc_info=True,
-                        )
-                        (config.ORIGINALS_DIR / info_v["filename"]).unlink(missing_ok=True)
-                        (config.THUMBNAILS_DIR / info_v["thumb_filename"]).unlink(missing_ok=True)
-                        raise
-                    results.append(video_media)
+                require_transcode_v = needs_transcode(info_v["codec"])
+                needs_scale_v = (
+                    not require_transcode_v
+                    and (info_v["width"] > config.DISPLAY_MAX_WIDTH or info_v["height"] > config.DISPLAY_MAX_HEIGHT)
+                )
 
-                    asyncio.create_task(
-                        manager.broadcast({"type": "media_added", "payload": MediaOut.model_validate(video_media).model_dump(mode="json")})
-                    )
-
-                    if require_transcode_v:
-                        original_path = config.ORIGINALS_DIR / info_v["filename"]
-                        thread = threading.Thread(
-                            target=_transcode_in_background,
-                            args=(video_media.id, original_path, info_v["duration"], loop),
-                            daemon=True,
-                        )
-                        thread.start()
-                    elif needs_scale_v:
-                        original_path = config.ORIGINALS_DIR / info_v["filename"]
-                        thread = threading.Thread(
-                            target=_scale_display_in_background,
-                            args=(video_media.id, original_path, info_v["duration"], loop),
-                            daemon=True,
-                        )
-                        thread.start()
-
-                    continue  # Skip image pipeline
+                video_media = Media(
+                    filename=info_v["filename"],
+                    original_name=video_name,
+                    media_type="video",
+                    width=info_v["width"],
+                    height=info_v["height"],
+                    file_size=info_v["file_size"],
+                    duration=info_v["duration"],
+                    codec=info_v["codec"],
+                    thumb_filename=info_v["thumb_filename"],
+                    processing_status="processing" if (require_transcode_v or needs_scale_v) else "ready",
+                    content_hash=video_hash,
+                )
+                try:
+                    db.add(video_media)
+                    db.commit()
+                    db.refresh(video_media)
                 except Exception:
-                    logger.warning(
-                        "Motion Photo video extraction failed for '%s', falling back to image",
-                        original_name,
+                    db.rollback()
+                    logger.error(
+                        "DB commit failed for Motion Photo upload '%s', cleaning up files: %s, %s",
+                        original_name, info_v["filename"], info_v["thumb_filename"],
                         exc_info=True,
                     )
-                    # Fall through to process_image() below
+                    (config.ORIGINALS_DIR / info_v["filename"]).unlink(missing_ok=True)
+                    (config.THUMBNAILS_DIR / info_v["thumb_filename"]).unlink(missing_ok=True)
+                    raise
+                results.append(video_media)
+
+                asyncio.create_task(
+                    manager.broadcast({"type": "media_added", "payload": MediaOut.model_validate(video_media).model_dump(mode="json")})
+                )
+
+                if require_transcode_v:
+                    original_path = config.ORIGINALS_DIR / info_v["filename"]
+                    thread = threading.Thread(
+                        target=_transcode_in_background,
+                        args=(video_media.id, original_path, info_v["duration"], loop),
+                        daemon=True,
+                    )
+                    thread.start()
+                elif needs_scale_v:
+                    original_path = config.ORIGINALS_DIR / info_v["filename"]
+                    thread = threading.Thread(
+                        target=_scale_display_in_background,
+                        args=(video_media.id, original_path, info_v["duration"], loop),
+                        daemon=True,
+                    )
+                    thread.start()
+
+                continue  # Skip image pipeline
 
             # ─── Normal image processing (also fallback) ──────
             try:

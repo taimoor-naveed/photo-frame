@@ -100,8 +100,8 @@ def test_pixel_motion_photo_returns_video(client, tmp_path):
 # ─── Corrupt embedded video → fallback to image ──────────────
 
 
-def test_corrupt_embedded_video_falls_back_to_image(client):
-    """If the embedded video is garbage, fall back to processing as image."""
+def test_corrupt_embedded_video_returns_400(client):
+    """If the embedded video is garbage, return 400 — don't silently save as image."""
     jpeg_bytes = _make_jpeg()
     garbage_video = b"\x00\x01\x02\x03garbage_not_a_video" * 100
     motion_photo = _build_samsung_motion_photo(jpeg_bytes, garbage_video)
@@ -110,11 +110,9 @@ def test_corrupt_embedded_video_falls_back_to_image(client):
         "/api/media",
         files=[("files", ("motion.jpg", io.BytesIO(motion_photo), "image/jpeg"))],
     )
-    assert r.status_code == 200
-    data = r.json()
-    assert len(data) == 1
-    assert data[0]["media_type"] == "photo"
-    assert data[0]["original_name"] == "motion.jpg"
+    assert r.status_code == 400
+    assert "Motion Photo detected" in r.json()["detail"]
+    assert "motion.jpg" in r.json()["detail"]
 
 
 # ─── Regular JPEG (regression) ───────────────────────────────

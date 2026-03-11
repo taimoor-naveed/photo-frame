@@ -44,50 +44,34 @@ def _build_samsung_motion_photo(jpeg_bytes: bytes, video_bytes: bytes) -> bytes:
 
 
 def test_motion_photo_db_commit_failure_cleans_up_video_files(client, tmp_path):
-    """When db.commit() fails after saving Motion Photo video, the extracted video
-    files are cleaned up. The outer except catches the re-raise and falls back to
-    saving as image (this is problem #2 — broad except — but the orphan cleanup works)."""
+    """When db.commit() fails after saving Motion Photo video, orphaned files are deleted
+    and the error propagates (no silent fallback to image)."""
     import app.config as config
 
     jpeg_bytes = _make_jpeg()
     mp4_bytes = _make_tiny_mp4(tmp_path)
     motion_photo = _build_samsung_motion_photo(jpeg_bytes, mp4_bytes)
 
+    originals_before = set(config.ORIGINALS_DIR.iterdir())
+    thumbnails_before = set(config.THUMBNAILS_DIR.iterdir())
+
     from sqlalchemy.orm import Session
-    original_commit = Session.commit
 
-    call_count = 0
+    def always_failing_commit(self):
+        raise Exception("Simulated DB commit failure")
 
-    def failing_commit(self):
-        nonlocal call_count
-        call_count += 1
-        # Fail on the first commit (the Motion Photo video save).
-        # The second commit (image fallback) succeeds.
-        if call_count == 1:
-            raise Exception("Simulated DB commit failure")
-        return original_commit(self)
+    with patch.object(Session, "commit", always_failing_commit):
+        with pytest.raises(Exception, match="Simulated DB commit failure"):
+            client.post(
+                "/api/media",
+                files=[("files", ("motion.jpg", io.BytesIO(motion_photo), "image/jpeg"))],
+            )
 
-    with patch.object(Session, "commit", failing_commit):
-        r = client.post(
-            "/api/media",
-            files=[("files", ("motion.jpg", io.BytesIO(motion_photo), "image/jpeg"))],
-        )
-
-    # Falls back to image due to broad except (problem #2)
-    assert r.status_code == 200
-    data = r.json()
-    assert len(data) == 1
-    assert data[0]["media_type"] == "photo"
-
-    # The important part: no orphaned VIDEO files on disk.
-    # Only the fallback image files should exist.
-    originals = list(config.ORIGINALS_DIR.iterdir())
-    thumbnails = list(config.THUMBNAILS_DIR.iterdir())
-    # Exactly 1 original (the fallback image) and 1 thumbnail (the fallback image thumb)
-    assert len(originals) == 1, f"Expected 1 original (image fallback), got {len(originals)}: {originals}"
-    assert len(thumbnails) == 1, f"Expected 1 thumbnail (image fallback), got {len(thumbnails)}: {thumbnails}"
-    # The original should be a JPEG (image), not an MP4 (video)
-    assert originals[0].suffix in (".jpg", ".jpeg"), f"Expected JPEG fallback, got {originals[0]}"
+    # No orphaned files on disk
+    originals_after = set(config.ORIGINALS_DIR.iterdir())
+    thumbnails_after = set(config.THUMBNAILS_DIR.iterdir())
+    assert originals_after == originals_before, f"Orphaned originals: {originals_after - originals_before}"
+    assert thumbnails_after == thumbnails_before, f"Orphaned thumbnails: {thumbnails_after - thumbnails_before}"
 
 
 # ─── Normal image: DB commit failure cleans up files ─────────
