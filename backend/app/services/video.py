@@ -67,6 +67,7 @@ def generate_video_thumbnail(
             "-y",
             "-ss", str(seek_time),
             "-i", str(video_path),
+            "-map", "0:v:0",
             "-vframes", "1",
             "-q:v", "5",
             str(thumb_path),
@@ -115,7 +116,8 @@ def transcode_to_h264(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
-            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
+            "-map", "0:v:0", "-map", "0:a:0?",
+            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-profile:v", "main", "-level", "4.0",
@@ -143,7 +145,8 @@ def _transcode_with_progress(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
-            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
+            "-map", "0:v:0", "-map", "0:a:0?",
+            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-profile:v", "main", "-level", "4.0",
@@ -256,7 +259,8 @@ def scale_video_for_display(
             [
                 "ffmpeg", "-y",
                 "-i", str(video_path),
-                "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
+                "-map", "0:v:0", "-map", "0:a:0?",
+                "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
                 "-pix_fmt", "yuv420p",
                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
                 "-profile:v", "main", "-level", "4.0",
@@ -295,7 +299,8 @@ def scale_video_for_display(
         [
             "ffmpeg", "-y",
             "-i", str(video_path),
-            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease",
+            "-map", "0:v:0", "-map", "0:a:0?",
+            "-vf", f"scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
             "-pix_fmt", "yuv420p",
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-profile:v", "main", "-level", "4.0",

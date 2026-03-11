@@ -46,7 +46,7 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 
 - **Branch per feature**: Always create a new git branch before implementing any new feature or change. Branch from `main` with a descriptive name (e.g., `feature/heic-support`, `fix/upload-validation`). Never commit directly to `main`.
 
-- **Docker is the runtime**: Never install app dependencies on the host or use host-installed tools (node, npm, python, pip, etc.) for app tasks. The host environment is irrelevant — different versions can cause false errors. Always use `docker compose exec` or `docker compose run` for package management, lockfile generation, builds, and any command that touches app code or dependencies.
+- **Docker is the runtime**: Everything app-related happens inside Docker — running commands, managing dependencies, manipulating data, debugging. Never use host-installed tools (node, npm, python, pip, etc.) or directly touch files that live inside containers/volumes. Always use `docker compose exec`, `docker compose run`, or `docker compose down -v` for any operation that affects the app runtime or its data.
 
 - **No black borders, no cropping**: CSS blur background effect for aspect ratio mismatch
 - **"Gallery After Dark" design**: dark editorial theme, frosted glass, min 44px touch targets (see SPEC.md UX section)

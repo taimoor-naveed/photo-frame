@@ -1,17 +1,37 @@
 # Photo Frame — Project State
 
-## Current Status: Feature-Complete MVP
+## Current Status: Motion Photo Support (complete)
 
-All core features implemented and tested. Ready for manual QA and RPi deployment.
+Branch: `feature/live-motion-photo-support` — **ready to merge**, all known issues resolved.
+
+Motion Photo detection + extraction: **done**. QA tested, bugs fixed, all tests passing.
+iOS Shortcut: **in progress (user-side)** — user is building the shortcut manually on iPhone. Workaround for variable contamination: use separate loops for Live Photos, normal photos, and videos.
+
+### Issues to fix before merging
+
+1. ~~**Orphaned files on DB commit failure**~~ — **FIXED**
+   - All 3 upload paths (Motion Photo, image, video) now have try/except around `db.commit()` that rolls back, logs the error with full traceback, and cleans up orphaned files (original + thumbnail + display). 7 new tests in `test_upload_db_commit_failure.py`.
+
+2. ~~**Broad `except Exception` hides real errors**~~ — **FIXED**
+   - Removed the broad `except Exception` that silently fell back to saving Motion Photos as images. If a Motion Photo is detected but the embedded video can't be processed, the upload now fails with a 400 and a clear error message. Infrastructure errors (disk full, DB failure) propagate instead of being swallowed.
+
+3. ~~**Cross-type dedup: standalone video can match extracted Motion Photo**~~ — **BY DESIGN**
+   - Same bytes = same video = correct duplicate. No change needed.
+
+4. ~~**No automated test for `-map` flag fix**~~ — **SKIPPED** (not reproducible)
+   - The ffmpeg `-map 0:v:0 -map 0:a:0?` fix for iPhone `.mov` metadata streams (`mebx`) was proven manually on real iPhone files. The `mebx` stream type is Apple-proprietary and cannot be synthesized with standard ffmpeg — ffmpeg's default behavior already skips data/metadata streams gracefully, so no synthetic fixture can demonstrate the failure. The fix remains in place as defense-in-depth.
+
+5. ~~**`generate_video_thumbnail()` missing `-map` flag**~~ — **FIXED**
+   - Added `-map 0:v:0` to `generate_video_thumbnail()` for consistency with all other ffmpeg commands. Ensures the first video stream is explicitly selected, preventing issues with multi-stream iPhone `.mov` files containing metadata streams like `mebx`. New unit test verifies the flag is present in the ffmpeg command.
 
 ## Test Counts
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 142 | All passing |
-| Frontend (vitest) | 142 | All passing |
+| Backend (pytest) | 170 | All passing |
+| Frontend (vitest) | 146 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~465** | **Green** |
+| **Total** | **~516** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
@@ -61,7 +81,45 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
 ---
 
+## Next Steps
+
+1. **Merge Motion Photo branch** — `feature/live-motion-photo-support` is complete. Merge to main.
+2. **iOS Shortcut** — user is building manually. Needs separate loops for Live Photos vs normal photos vs videos to avoid variable contamination. Backend handles everything else automatically.
+3. **Deploy** — deploy Motion Photo support to prod, test with real Android Motion Photos and iOS Live Photos.
+
+---
+
 ## Recent Changes
+
+### Motion Photo / Live Photo Support (2026-03-09)
+
+Two platforms, two approaches:
+
+- **Android (Samsung/Pixel)**: Motion Photos are JPEGs with an embedded MP4 appended after the image data. The backend detects and extracts the video automatically during upload — no client-side work needed. The JPEG is discarded; only the video is saved.
+- **iPhone (iOS)**: Live Photos are stored as separate HEIC + MOV files. iOS doesn't send the combined format over HTTP. Solution: iOS Shortcut uses "Encode Media" on Live Photos to produce a Motion Photo container, then uploads it. The backend extracts the video the same way as Android. For regular photos/videos, the Shortcut uploads them directly.
+
+**Backend changes:**
+- **Detection service**: `backend/app/services/motion_photo.py` — supports Samsung older format (`MotionPhoto_Data` marker), Pixel older (MicroVideoOffset XMP), Pixel newer (MotionPhoto + Item:Length XMP)
+- **Upload integration**: `backend/app/routers/media.py` — Motion Photo check before `process_image()`, fallback to image if video extraction fails
+- **Duplicate detection**: SHA-256 of extracted video bytes, deduplicates across uploads
+- **QA fixes**: `rfind()` for Samsung marker (prevents false positive on EXIF metadata), JPEG magic byte check (skips non-JPEG files)
+- **ffmpeg fixes**: Added `force_divisible_by=2` to all scale filters (odd dimensions cause encoding failures). Added `-map 0:v:0 -map 0:a:0?` to all ffmpeg encode commands (iPhone `.mov` files contain extra metadata streams like `mebx` that crash ffmpeg).
+- **Tests**: 21 unit tests (detection + extraction + rfind + non-JPEG rejection), 8 integration tests (Samsung, Pixel older, Pixel newer, corrupt fallback, regular JPEG regression, multi-upload, tiny video fallback, duplicate dedup)
+
+**iOS Shortcut notes:**
+- Must use separate loops for Live Photos, normal photos, and videos — mixing them in one loop causes iOS Shortcuts variable contamination (Encode Media output leaks into subsequent iterations)
+- Guide: `docs/ios-shortcut-setup.md`
+
+**Known issues (from code review):**
+
+| # | Issue | Platform | Severity |
+|---|-------|----------|----------|
+| 1 | Orphaned files on DB commit failure — `save_video_original()` writes to disk, then `db.commit()` fails, no cleanup | Android only | Low — rare, wastes disk |
+| 2 | Broad `except Exception` silently falls back to saving whole blob as photo instead of surfacing error | Android only | Low — safe fallback but hides real errors |
+| 3 | Cross-type dedup — standalone `.mp4` upload can match extracted Motion Photo video by content hash | Android only | Low — arguably correct, needs conscious decision |
+| 4 | No test for `-map` flag fix (needs multi-stream `.mov` fixture) | iPhone only | Low — proven manually |
+
+
 
 ### Animated Transition on Current Photo Delete (2026-03-07)
 
@@ -215,8 +273,10 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 
 ## Known Limitations / Future Work
 
-- [ ] **Originals are re-encoded on upload** — `process_image()` decodes, EXIF-rotates, and re-saves images (quality 95). HEIC files are converted to JPEG. This loses the original raw bytes, embedded data (Live Photo motion, depth maps), and introduces generation loss. Future: save raw bytes as the original, generate a separate browser-friendly display version.
+- [x] ~~**Originals are re-encoded on upload**~~ — Motion Photo support now extracts embedded video before image processing. Live Photos uploaded via iOS Shortcut (with "Encode Media") send the Motion Photo container, and the backend extracts the video automatically.
+- [ ] **Regular photos still re-encoded** — `process_image()` decodes, EXIF-rotates, and re-saves images (quality 95). HEIC→JPEG conversion. Loses raw bytes and introduces generation loss.
 - **No user auth** — single-user photo frame, no login needed
 - **No image editing** — crop, rotate, filters not implemented
 - **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale
 - **No offline mode** — requires network connection to backend
+- [ ] **Upload error messages show raw JSON** — `UploadPage.tsx` displays `xhr.responseText` directly, so users see `{"detail":"..."}` instead of the parsed human-readable message. Should parse the JSON and extract the `detail` field.
