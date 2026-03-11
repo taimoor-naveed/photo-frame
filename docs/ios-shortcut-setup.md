@@ -1,132 +1,66 @@
 # iOS Shortcut: Upload to Photo Frame
 
-Upload photos, videos, and Live Photos from your iPhone to the photo frame. Live Photos automatically have their video extracted and uploaded.
+Upload photos, videos, and Live Photos from your iPhone to the photo frame via the Share Sheet. Live Photos are automatically encoded as video before upload.
 
 ## Prerequisites
 
 - iPhone on the same network as the photo frame server
-- Server URL (e.g., `http://home-pc` for prod, `http://192.168.1.x:8000` for dev)
+- Server URL (e.g., `http://home-pc/api/media` for prod, `http://YOUR_IP:8000/api/media` for dev)
 
 ## Create the Shortcut
 
-Open the **Shortcuts** app on your iPhone and create a new shortcut.
+Open the **Shortcuts** app and create a new shortcut with these actions:
 
-### Step 1: Configure Server URL
+### 1. Receive Input from Share Sheet
 
-1. Add action: **Text**
-2. Set the text to your server URL (no trailing slash):
-   - Prod: `http://home-pc`
-   - Dev: `http://YOUR_MAC_IP:8000`
-3. Tap the text action title and rename it to **Server URL**
+- **Receive** → Images and Media → from **Share Sheet**
+- If there's no input: **Stop and Respond** → "No media selected"
 
-### Step 2: Select Photos
+### 2. Set Upload URL
 
-1. Add action: **Select Photos**
-2. Enable **Select Multiple**
+- Add a **Text** action with your server's upload endpoint:
+  `http://YOUR_IP:8000/api/media`
 
-### Step 3: Count Selected Photos
+### 3. Loop Through Each Item
 
-1. Add action: **Count**
-2. Set input to **Selected Photos**
-3. Add action: **Set Variable** → name it **Total Count**
+- Add **Repeat with each item** in **Shortcut Input**
 
-### Step 4: Set Up Counter
+Inside the loop:
 
-1. Add action: **Number** → set to `0`
-2. Add action: **Set Variable** → name it **Success Count**
-
-### Step 5: Loop Through Each Photo
-
-1. Add action: **Repeat with Each** (input: **Selected Photos**)
-
-Inside the loop, add these actions in order:
-
-#### 5a: Check if Live Photo
-
-1. Add action: **If**
-2. Set condition: **Repeat Item** → **Media Type** → **is** → **Live Photo**
-
-#### 5b: Live Photo Branch (inside "If")
-
-1. Add action: **Encode Media**
-   - Input: **Repeat Item**
-   - Tap **Show More**
-   - Toggle OFF **Audio Only**
-   - This extracts the video component from the Live Photo
-
-#### 5c: Otherwise Branch
-
-1. In the **Otherwise** section — no action needed, the **Repeat Item** passes through as-is
-
-#### 5d: Upload the File (after End If)
-
-1. Add action: **Get Contents of URL**
-2. URL: tap **Server URL** variable, then type `/api/media` after it
-   - Result: `Server URL/api/media`
-3. Method: **POST**
-4. Request Body: **Form**
-5. Add new field:
-   - Type: **File**
-   - Key: `files`
-   - Value: **If Result** (this is the output of the If/Otherwise block)
-
-#### 5e: Handle Response
-
-1. Add action: **If**
-2. Condition: **Get Contents of URL** → **has any value**
-3. Inside If:
-   - Add action: **Calculate** → **Success Count** + 1
-   - Add action: **Set Variable** → **Success Count**
+1. **Set variable** `UploadItem` to **Repeat Item**
+2. **Get Media Type** from `UploadItem`
+3. **If** Media Type **is Image**:
+   - **Get Photo Type** from `UploadItem`
+   - **If** Photo Type **is Live Photo**:
+     - **Encode** `UploadItem` (this extracts the video from the Live Photo)
+     - **Set variable** `UploadItem` to **Encoded Media**
+   - **End If**
 4. **End If**
+5. **Show** `UploadItem` **in Quick Look** (optional — lets you preview before upload)
+6. **Get Contents of** the Text URL (this POSTs the file to the server)
 
-### Step 6: End Repeat
+### 4. Name and Configure
 
-The **End Repeat** closes the loop automatically.
+1. Rename the shortcut to **Upload to Photo Frame**
+2. Enable **Show in Share Sheet** and set share types to **Images** and **Media**
+3. Optionally **Add to Home Screen** for quick access
 
-### Step 7: Show Result
+## Usage
 
-1. Add action: **Show Notification**
-2. Title: `Photo Frame`
-3. Body: Tap **Success Count**, type ` of `, tap **Total Count**, type ` uploaded`
-
-### Step 8: Name and Configure
-
-1. Tap the shortcut name at the top → rename to **Upload to Photo Frame**
-2. Tap the **(i)** or settings icon:
-   - Enable **Show in Share Sheet**
-   - Under "Share Sheet Types", select: **Images**, **Videos**, **Media**
-3. Tap **Add to Home Screen** for quick access
-
-## Using the Shortcut
-
-### From Home Screen
-1. Tap the shortcut icon
-2. Select photos/videos from the picker
-3. Wait for upload notification
-
-### From Share Sheet
-1. In the Photos app, select one or more photos
+1. In the Photos app, select photos/videos
 2. Tap **Share** → **Upload to Photo Frame**
-3. Wait for upload notification
+3. Each item is previewed (Quick Look) then uploaded
 
-## Switching Between Dev and Prod
+## How It Works
 
-Edit the shortcut and change the **Text** action in Step 1:
-- **Prod:** `http://home-pc`
-- **Dev:** `http://YOUR_MAC_IP:8000` (find your Mac's IP via System Settings → Wi-Fi → Details)
+- **Regular photos/videos**: Uploaded directly
+- **Live Photos**: Detected via Photo Type check, encoded to extract the video component, then uploaded. The backend processes it like any video.
+- **Android Motion Photos**: Handled server-side — the backend detects embedded video in the JPEG automatically.
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
-| "Could not connect to the server" | Check you're on the same Wi-Fi network. Verify the URL. |
-| Upload seems to work but nothing appears | Check the server URL has no trailing slash. Check the field name is exactly `files`. |
-| Live Photo uploaded as image, not video | Make sure the **Encode Media** action is inside the "If" (Live Photo) branch. |
-| Shortcut is slow with many files | Normal — files upload one at a time. Large videos take longer. |
-| "0 of X uploaded" | Server may be down. Try the URL in Safari first: `http://home-pc/api/media` should return 405 Method Not Allowed (meaning it's reachable). |
-
-## How It Works
-
-- **Regular photos/videos**: Uploaded as-is to `POST /api/media`
-- **Live Photos**: The Encode Media action extracts the video component (MOV). The backend processes it like any other video upload.
-- **Android Motion Photos**: Not relevant here — those are handled server-side when uploaded via the web browser (the backend detects the embedded video in the JPEG).
+| "Could not connect to the server" | Check you're on the same Wi-Fi. Verify the URL in Safari. |
+| Live Photo uploaded as image | Make sure the Encode action is inside the Live Photo "If" block. |
+| Nothing appears after upload | Check the URL has no trailing slash after `/api/media`. |
