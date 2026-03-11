@@ -6,6 +6,9 @@
 
 SLIDESHOW_URL="http://home-pc/slideshow"
 LOG="/tmp/slideshow.log"
+DISPLAY_OUTPUT="HDMI-A-1"
+export WAYLAND_DISPLAY=wayland-0
+export XDG_RUNTIME_DIR=/run/user/1000
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"
@@ -16,17 +19,17 @@ case "$1" in
         log "Turning OFF"
         pkill -9 chromium 2>/dev/null
         sleep 1
-        vcgencmd display_power 0
+        wlr-randr --output "$DISPLAY_OUTPUT" --off
         log "Display off, chromium killed"
         ;;
     on)
         log "Turning ON"
-        vcgencmd display_power 1
+        wlr-randr --output "$DISPLAY_OUTPUT" --on
         sleep 2
         # Kill any leftover chromium before starting fresh
         pkill -9 chromium 2>/dev/null
         sleep 1
-        WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 nohup chromium \
+        nohup chromium \
             --ozone-platform=wayland --kiosk --noerrdialogs --disable-infobars \
             --disable-session-crashed-bubble --disable-translate --no-first-run \
             --start-fullscreen --enable-features=VaapiVideoDecoder \
