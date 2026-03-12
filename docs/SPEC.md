@@ -6,7 +6,7 @@
 | Method   | Endpoint                          | Description                           |
 |----------|-----------------------------------|---------------------------------------|
 | `GET`    | `/api/media`                      | List all media (paginated)            |
-| `POST`   | `/api/media`                      | Upload photos and/or videos           |
+| `POST`   | `/api/media`                      | Upload photos, videos, or Motion Photos |
 | `GET`    | `/api/media/{id}`                 | Get media metadata                    |
 | `DELETE` | `/api/media/bulk`                 | Bulk delete media by IDs              |
 | `POST`   | `/api/media/slideshow/jump`       | Jump slideshow to specific media item |
@@ -31,6 +31,9 @@
 - `media_processing_error` — payload: `{"id": <media_id>}`
 - `slideshow_jump` — payload: `{"id": <media_id>}` (jump all slideshows to this media)
 - `settings_changed` — payload: full settings object
+
+### File Serving
+All `/uploads/*` routes return `Cache-Control: public, max-age=31536000, immutable` (filenames contain UUIDs). Path traversal protection via `is_relative_to()` + null byte rejection.
 
 ### Health
 `GET /api/health` → `{"status": "ok"}`
@@ -65,15 +68,31 @@ No migrations — clean-slate deploy. Tables auto-created via `Base.metadata.cre
 
 ## Media Pipeline
 
+### Duplicate Detection
+All uploads are SHA-256 hashed. If the hash matches an existing record, the existing media item is returned (no error, no re-processing). For Motion Photos, the hash is computed on the extracted video bytes.
+
+### Motion Photo / Live Photo Support
+JPEG files are checked for embedded video before normal photo processing. If detected, the video is extracted and saved as a video media record (the JPEG wrapper is discarded).
+
+**Supported formats:**
+- **Samsung**: `MotionPhoto_Data` marker (searched via `rfind` to avoid false positives from EXIF metadata)
+- **Google Pixel (older)**: `MicroVideo` + `MicroVideoOffset` XMP markers
+- **Google Pixel (newer)**: `MotionPhoto` + `Item:Length` XMP markers
+- **iPhone (iOS)**: Live Photos are separate HEIC + MOV files natively. An iOS Shortcut uses "Encode Media" to produce a Motion Photo container before uploading. See `docs/ios-shortcut-setup.md`.
+
+Non-JPEG files (PNG, HEIC, etc.) skip Motion Photo detection. If video extraction fails, the file falls back to normal photo processing.
+
 ### Photo Upload
 1. Validate extension (jpg, jpeg, png, webp, heic) + mime type
-2. `ImageOps.exif_transpose()` — auto-rotate to correct orientation
-3. Convert HEIC → JPEG; convert RGBA/palette → RGB
-4. Save processed original → `data/originals/` (EXIF-rotated, re-encoded at quality 95; **note:** raw bytes are not preserved — see future work)
-5. Generate thumbnail (300px max dimension, JPEG quality 85)
-6. Generate display-optimized JPEG if image exceeds 1024x600 bounding box → `data/display/`
-7. Extract dimensions from rotated image
-8. Insert DB row, broadcast `media_added` via WebSocket
+2. Check for Motion Photo — if detected, extract video and process as video upload instead
+3. `ImageOps.exif_transpose()` — auto-rotate to correct orientation
+4. Convert HEIC → JPEG; convert RGBA/palette → RGB
+5. SHA-256 content hash → skip if duplicate
+6. Save processed original → `data/originals/` (EXIF-rotated, re-encoded at quality 95; **note:** raw bytes are not preserved — see future work)
+7. Generate thumbnail (300px max dimension, JPEG quality 85)
+8. Generate display-optimized JPEG if image exceeds 1024x600 bounding box → `data/display/`
+9. Extract dimensions from rotated image
+10. Insert DB row, broadcast `media_added` via WebSocket
 
 ### Video Upload (Two-Phase)
 **Phase 1 (synchronous — returns immediately):**
@@ -81,15 +100,17 @@ No migrations — clean-slate deploy. Tables auto-created via `Base.metadata.cre
 2. SHA-256 content hash → skip if duplicate
 3. Save original → `data/originals/`
 4. `ffprobe` — extract duration, resolution, codec
-5. Generate thumbnail at 25% → `data/thumbnails/`
+5. Generate thumbnail at 25% → `data/thumbnails/` (uses `-map 0:v:0` for multi-stream safety)
 6. Insert DB row with `processing_status="processing"` if transcode/scaling needed, `"ready"` otherwise
 7. Broadcast `media_added` via WebSocket
 
 **Phase 2 (background thread — if transcode or display scaling needed):**
-1. `ffmpeg` transcode to H.264 MP4 (capped at 1024x600) with `-progress pipe:1`
-2. Parse progress, broadcast `media_processing_progress` events (throttled every 3%)
-3. On success: update DB to `"ready"`, broadcast `media_processing_complete`
-4. On failure: update DB to `"error"`, broadcast `media_processing_error`
+1. `ffmpeg` transcode to H.264 MP4 (Main profile, level 4.0, capped at 1024x600, `force_divisible_by=2`) with `-progress pipe:1`
+2. Uses `-map 0:v:0 -map 0:a:0?` to handle iPhone `.mov` files with extra metadata streams
+3. Parse progress, broadcast `media_processing_progress` events (throttled every 3%)
+4. On success: update DB to `"ready"`, broadcast `media_processing_complete`
+5. On failure: update DB to `"error"`, broadcast `media_processing_error`
+6. Post-processing: verify DB record still exists — delete orphaned output file if record was deleted during processing
 
 ### Future: Preserve Original Uploads
 
@@ -119,6 +140,18 @@ Clicking a thumbnail in the gallery opens a lightbox modal:
 | Close           | X button, Escape key, or backdrop click                    |
 
 Body scroll is locked while the modal is open. Escape is suppressed when the ConfirmDialog is open (to avoid closing both).
+
+### Multi-Select Bulk Deletion
+Long press (500ms) on any photo card enters selection mode. In selection mode:
+- Tap toggles selection (copper ring + checkmark)
+- Floating bottom bar: Cancel, selected count, "Select all" / "Deselect all", red Delete button
+- Delete opens ConfirmDialog → calls `DELETE /api/media/bulk`
+- Escape exits selection mode
+- Auto-exits when gallery empties
+- Stale IDs pruned when photos are deleted via WebSocket
+
+### Download
+Download button in modal header triggers native `<a download>` for the original file.
 
 ## Display — Blur Background Effect
 
@@ -159,9 +192,12 @@ Works for both `<img>` and `<video>`.
 | Escape               | Dismiss overlay           |
 
 ### Transitions
-- **Crossfade**: new slide fades in (opacity 0→1) over previous via double-rAF technique
-- **Slide**: new slide slides in from right, previous slides out left
+- **Crossfade**: new slide fades in (opacity 0→1) over previous via CSS `@keyframes` animation (800ms)
+- **Slide**: new slide slides in from right (or left for backward navigation), previous slides out opposite direction (800ms)
 - **None**: instant swap
+
+### Preloading
+Next media item is preloaded while the current slide is displayed. Images use `new Image()`, videos use a hidden `<video preload="auto">` element. Preload is discarded on manual skip.
 
 ### Settings Overlay
 Frosted glass bottom sheet with drag handle and rounded top corners. Controls: large centered play/pause button, interval slider (3–60s, debounced 400ms), transition segmented control (crossfade / slide / none). Auto-hides after 5s of inactivity; any interaction or WebSocket settings change resets the timer. Clicking/tapping outside the overlay dismisses it. Pointer events inside the overlay do not propagate to the slideshow tap zones.

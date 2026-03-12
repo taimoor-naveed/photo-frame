@@ -10,7 +10,7 @@ Built for a Raspberry Pi 4 with a 1024x600 touchscreen, but works on any device 
 - Fullscreen display with blur background effect — no black borders, no cropping
 - Crossfade, slide, or instant transitions
 - Videos auto-play muted; long videos wait to finish before advancing, short videos show first frame while waiting
-- Configurable interval (3s–60min) and transition type
+- Configurable interval (3s–60s) and transition type
 - Tap zones (right/left halves) and arrow keys for navigation; long press for settings overlay
 - Shuffled playlist order, auto-advances
 - "Show in slideshow" — jump all connected slideshows to a specific photo/video from any device
@@ -151,8 +151,8 @@ All tests run inside Docker — no host dependencies needed.
 ./scripts/test-all.sh
 
 # Individual suites
-./scripts/test-frontend.sh    # Vitest (~142 tests)
-./scripts/test-backend.sh     # pytest (~142 tests)
+./scripts/test-frontend.sh    # Vitest (~146 tests)
+./scripts/test-backend.sh     # pytest (~170 tests)
 ./scripts/test-e2e.sh         # Playwright (~200 tests, desktop + mobile)
 ```
 
@@ -195,4 +195,4 @@ All tests run inside Docker — no host dependencies needed.
 
 ## License
 
-Private project.
+MIT
