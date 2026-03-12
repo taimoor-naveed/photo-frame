@@ -545,7 +545,7 @@ describe("GalleryPage", () => {
 
   it("load-more retry button triggers another fetchNextPage", async () => {
     const page2Items = [mockMedia2, mockMedia3];
-    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ items: [mockMedia1], total: 3, page: 1, per_page: 50 }),
