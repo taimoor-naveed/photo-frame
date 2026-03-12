@@ -9,6 +9,7 @@ export function usePhotos() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -31,7 +32,8 @@ export function usePhotos() {
   }, []);
 
   const fetchNextPage = useCallback(async () => {
-    if (loadingMore) return;
+    if (loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       const nextPage = pageRef.current + 1;
@@ -43,9 +45,10 @@ export function usePhotos() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load media");
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [loadingMore]);
+  }, []);
 
   // Ref pattern so WS handler can call latest fetchPhotos without dep
   const fetchPhotosRef = useRef(fetchPhotos);

@@ -82,8 +82,10 @@ export default function GalleryPage() {
     setSelectedIds(new Set());
   }, []);
 
-  // Infinite scroll sentinel
+  // Infinite scroll sentinel — use ref for fetchNextPage to keep observer stable
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const fetchNextPageRef = useRef(fetchNextPage);
+  useEffect(() => { fetchNextPageRef.current = fetchNextPage; }, [fetchNextPage]);
   useEffect(() => {
     if (!hasMore || loadingMore) return;
     const sentinel = sentinelRef.current;
@@ -91,14 +93,14 @@ export default function GalleryPage() {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          fetchNextPage();
+          fetchNextPageRef.current();
         }
       },
       { rootMargin: "200px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loadingMore, fetchNextPage]);
+  }, [hasMore, loadingMore]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
@@ -192,7 +194,7 @@ export default function GalleryPage() {
           <div
             key={media.id}
             className="animate-fade-in-up"
-            style={{ animationDelay: `${Math.min(i, 11) * 60}ms` }}
+            style={{ animationDelay: `${Math.min(i % 50, 11) * 60}ms` }}
           >
             <PhotoCard
               media={media}
