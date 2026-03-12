@@ -14,8 +14,13 @@ export function usePhotos() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
+  // Generation token: incremented on every reset (fetchPhotos).
+  // fetchNextPage captures the token before its request and discards
+  // the result if a reset happened while it was in flight.
+  const generationRef = useRef(0);
 
   const fetchPhotos = useCallback(async () => {
+    generationRef.current++;
     setLoading(true);
     setError(null);
     pageRef.current = 1;
@@ -35,14 +40,18 @@ export function usePhotos() {
     if (loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
+    const gen = generationRef.current;
     try {
       const nextPage = pageRef.current + 1;
       const data = await api.media.list(nextPage, PER_PAGE);
+      // Discard if a reset happened while this request was in flight
+      if (gen !== generationRef.current) return;
       pageRef.current = nextPage;
       setPhotos((prev) => [...prev, ...data.items]);
       setTotal(data.total);
       setHasMore(nextPage * PER_PAGE < data.total);
     } catch (e) {
+      if (gen !== generationRef.current) return;
       setError(e instanceof Error ? e.message : "Failed to load media");
     } finally {
       loadingMoreRef.current = false;

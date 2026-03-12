@@ -28,8 +28,11 @@ function makePage(items: Media[], total: number, page: number): MediaList {
 
 const mockList: MediaList = makePage([makeMedia(1)], 1, 1);
 
-// Mock WebSocket globally (usePhotos now uses useWebSocket internally)
+// Mock WebSocket that tracks instances for sending messages
+let wsInstances: MockWS[] = [];
+
 class MockWS {
+  static readonly OPEN = 1;
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -37,27 +40,39 @@ class MockWS {
   readyState = 0;
   close = vi.fn();
   constructor() {
+    wsInstances.push(this);
     setTimeout(() => {
       this.readyState = 1;
       this.onopen?.();
     }, 0);
   }
+
+  simulateMessage(data: object) {
+    this.onmessage?.({ data: JSON.stringify(data) });
+  }
 }
 
 const OriginalWebSocket = globalThis.WebSocket;
 
-beforeAll(() => {
+beforeEach(() => {
+  wsInstances = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  globalThis.WebSocket = MockWS as any;
+  vi.stubGlobal("WebSocket", MockWS as any);
+  vi.restoreAllMocks();
+  // Re-stub after restoreAllMocks since it clears stubs
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.stubGlobal("WebSocket", MockWS as any);
 });
 
 afterAll(() => {
   globalThis.WebSocket = OriginalWebSocket;
 });
 
-beforeEach(() => {
-  vi.restoreAllMocks();
-});
+function getLatestWs(): MockWS {
+  const ws = wsInstances[wsInstances.length - 1];
+  if (!ws) throw new Error("No WebSocket instance found");
+  return ws;
+}
 
 describe("usePhotos", () => {
   it("fetches photos on mount", async () => {
@@ -226,41 +241,108 @@ describe("usePhotos", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("WS media_added resets to page 1", async () => {
+  it("WS media_added resets to page 1 and replaces photos", async () => {
     const page1Items = Array.from({ length: 50 }, (_, i) => makeMedia(i + 1));
+    const newPage1 = [makeMedia(99), ...page1Items.slice(0, 49)];
+
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       // Initial fetch
       .mockResolvedValueOnce({
         ok: true,
         json: async () => makePage(page1Items, 75, 1),
       } as Response)
-      // Refetch after WS event (page 1 again)
+      // Refetch after WS event (page 1 with new item at top)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => makePage([makeMedia(99), ...page1Items.slice(0, 49)], 76, 1),
+        json: async () => makePage(newPage1, 76, 1),
+      } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.photos[0].id).toBe(1);
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+    // Simulate WS media_added event
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_added",
+        payload: makeMedia(99),
+      });
+    });
+
+    // Wait for refetch to complete
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+
+    // Verify the refetch was to page 1
+    const refetchUrl = fetchSpy.mock.calls[1][0] as string;
+    expect(refetchUrl).toContain("page=1");
+
+    // Verify photos were replaced (not appended) — first item is now 99
+    await waitFor(() => expect(result.current.photos[0].id).toBe(99));
+    expect(result.current.photos).toHaveLength(50);
+  });
+
+  it("discards stale fetchNextPage response after reset", async () => {
+    const page1Items = Array.from({ length: 50 }, (_, i) => makeMedia(i + 1));
+    const staleItems = Array.from({ length: 25 }, (_, i) => makeMedia(i + 51));
+    const freshPage1 = [makeMedia(99), ...page1Items.slice(0, 49)];
+
+    // Page 2 resolves slowly — we'll trigger a reset before it completes
+    let resolvePage2: ((v: Response) => void) | undefined;
+    const page2Promise = new Promise<Response>((r) => { resolvePage2 = r; });
+
+    vi.spyOn(globalThis, "fetch")
+      // Initial fetch (page 1)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(page1Items, 75, 1),
+      } as Response)
+      // Page 2 (slow)
+      .mockReturnValueOnce(page2Promise)
+      // Reset fetch (page 1 again, triggered by WS)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(freshPage1, 76, 1),
       } as Response);
 
     const { result } = renderHook(() => usePhotos());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
+    // Start fetchNextPage (page 2 — slow, in flight)
+    act(() => { result.current.fetchNextPage(); });
+
     // Flush WS creation
     await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
 
-    // Simulate WS media_added
-    const ws = (globalThis.WebSocket as unknown as typeof MockWS);
-    // Access the instance - it was created in the hook
-    const instances = vi.mocked(globalThis.WebSocket);
-    // The WS mock stores the onmessage handler; trigger it
-    // We need to get the actual instance. Let's use a different approach.
-    // Actually, the mock WS doesn't expose instances easily. Let's verify the refetch URL instead.
-
-    // After WS event, fetchPhotos is called which fetches page 1
-    // Verify the refetch call was to page 1
-    await waitFor(() => {
-      if (fetchSpy.mock.calls.length >= 2) {
-        const refetchUrl = fetchSpy.mock.calls[1][0] as string;
-        expect(refetchUrl).toContain("page=1");
-      }
+    // WS event triggers reset to page 1 while page 2 is still in flight
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_added",
+        payload: makeMedia(99),
+      });
     });
+
+    // Wait for reset to complete
+    await waitFor(() => expect(result.current.photos[0].id).toBe(99));
+
+    // Now resolve the stale page 2
+    await act(async () => {
+      resolvePage2!({
+        ok: true,
+        json: async () => makePage(staleItems, 75, 2),
+      } as Response);
+    });
+
+    // Stale page 2 data should NOT have been appended
+    // Photos should still be the fresh page 1 (50 items starting with 99)
+    expect(result.current.photos).toHaveLength(50);
+    expect(result.current.photos[0].id).toBe(99);
+    // None of the stale items (51-75) should be present
+    const ids = result.current.photos.map((p) => p.id);
+    expect(ids).not.toContain(51);
   });
 });

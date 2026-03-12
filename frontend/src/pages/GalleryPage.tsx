@@ -220,6 +220,7 @@ export default function GalleryPage() {
         <SelectionActionBar
           selectedCount={selectedIds.size}
           totalCount={photos.length}
+          hasMore={hasMore}
           onCancel={handleCancelSelection}
           onSelectAll={handleSelectAll}
           onDeselectAll={handleDeselectAll}
