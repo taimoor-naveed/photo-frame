@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Media } from "../api/client";
 import MediaDetailModal from "../components/MediaDetailModal";
@@ -7,7 +7,7 @@ import SelectionActionBar from "../components/SelectionActionBar";
 import { usePhotos } from "../hooks/usePhotos";
 
 export default function GalleryPage() {
-  const { photos, total, loading, error, deleteError, setDeleteError, deletePhoto, bulkDeletePhotos } = usePhotos();
+  const { photos, total, loading, loadingMore, hasMore, error, loadMoreError, deleteError, setDeleteError, deletePhoto, bulkDeletePhotos, fetchNextPage } = usePhotos();
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -81,6 +81,26 @@ export default function GalleryPage() {
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, []);
+
+  // Infinite scroll sentinel — use ref for fetchNextPage to keep observer stable
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const fetchNextPageRef = useRef(fetchNextPage);
+  useEffect(() => { fetchNextPageRef.current = fetchNextPage; }, [fetchNextPage]);
+  useEffect(() => {
+    if (!hasMore || loadingMore || loadMoreError) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          fetchNextPageRef.current();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, loadMoreError]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
@@ -174,7 +194,7 @@ export default function GalleryPage() {
           <div
             key={media.id}
             className="animate-fade-in-up"
-            style={{ animationDelay: `${Math.min(i, 11) * 60}ms` }}
+            style={{ animationDelay: `${Math.min(i % 50, 11) * 60}ms` }}
           >
             <PhotoCard
               media={media}
@@ -188,10 +208,30 @@ export default function GalleryPage() {
         ))}
       </div>
 
+      {hasMore && (
+        <div ref={sentinelRef} className="flex flex-col items-center py-8 gap-4">
+          {loadingMore && (
+            <div className="w-6 h-6 border-2 border-warm-muted/30 border-t-warm-muted rounded-full animate-spin" />
+          )}
+          {loadMoreError && (
+            <div data-testid="load-more-error" className="rounded-xl bg-red-500/10 border border-red-500/20 px-6 py-3 text-center">
+              <p className="text-sm text-red-400 mb-2">{loadMoreError}</p>
+              <button
+                onClick={() => fetchNextPage()}
+                className="text-sm text-warm-gray hover:text-warm-white underline underline-offset-4"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {selectionMode && (
         <SelectionActionBar
           selectedCount={selectedIds.size}
           totalCount={photos.length}
+          hasMore={hasMore}
           onCancel={handleCancelSelection}
           onSelectAll={handleSelectAll}
           onDeselectAll={handleDeselectAll}

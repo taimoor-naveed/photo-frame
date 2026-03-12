@@ -57,7 +57,7 @@ const mockMedia: MediaList = {
   items: [makePhoto(1, "sunset.jpg"), makeVideo(2)],
   total: 2,
   page: 1,
-  per_page: 1000,
+  per_page: 100,
 };
 
 // Mock WebSocket that captures instances for sending messages
@@ -108,7 +108,7 @@ function mockFetch(items: Media[], settings: Settings = mockSettings) {
           items,
           total: items.length,
           page: 1,
-          per_page: 1000,
+          per_page: 100,
         }),
       } as Response);
     }
@@ -901,6 +901,84 @@ describe("SlideshowPage", () => {
 
     const fgVideo = videos[1];
     expect(fgVideo.getAttribute("data-media-id")).toBe("1");
+  });
+
+  it("listAll fetches multiple pages and combines all items", async () => {
+    // listAll() uses per_page=100, so total must exceed 100 to trigger page 2
+    // We'll use 3 items but pretend total=101 so page 2 is fetched
+    const page1Items = [makePhoto(1), makePhoto(2)];
+    const page2Items = [makePhoto(3)];
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.includes("/media") && url.includes("page=2")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            items: page2Items,
+            total: 3,
+            page: 2,
+            per_page: 100,
+          }),
+        } as Response);
+      }
+      if (url.includes("/media")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            items: page1Items,
+            total: 101,
+            page: 1,
+            per_page: 100,
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => mockSettings,
+      } as Response);
+    });
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    // All 3 items from both pages should be reachable
+    const ids = await collectAllMediaIds(3);
+    expect(ids).toEqual(new Set([1, 2, 3]));
+  });
+
+  it("WS handlers do surgical updates without refetching", async () => {
+    mockFetch([makePhoto(1), makePhoto(2)]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockClear();
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_added",
+        payload: makePhoto(10),
+      });
+    });
+
+    // No fetch calls should have been made — WS handler inserts in-place
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // But the new photo should be in the playlist
+    const ids = await collectAllMediaIds(3);
+    expect(ids).toEqual(new Set([1, 2, 10]));
   });
 
   it("navigation wraps forward and backward at boundaries", async () => {

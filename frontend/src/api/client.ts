@@ -97,6 +97,16 @@ export const api = {
     delete(id: number): Promise<void> {
       return request(`/media/${id}`, { method: "DELETE" });
     },
+    async listAll(): Promise<Media[]> {
+      const first = await this.list(1, 100);
+      const items = [...first.items];
+      const totalPages = Math.ceil(first.total / 100);
+      for (let page = 2; page <= totalPages; page++) {
+        const data = await this.list(page, 100);
+        items.push(...data.items);
+      }
+      return items;
+    },
     bulkDelete(ids: number[]): Promise<BulkDeleteResponse> {
       return request(`/media/bulk`, {
         method: "DELETE",

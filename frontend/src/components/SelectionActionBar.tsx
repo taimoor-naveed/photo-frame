@@ -4,6 +4,7 @@ import ConfirmDialog from "./ConfirmDialog";
 interface SelectionActionBarProps {
   selectedCount: number;
   totalCount: number;
+  hasMore?: boolean;
   onCancel: () => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
@@ -13,6 +14,7 @@ interface SelectionActionBarProps {
 export default function SelectionActionBar({
   selectedCount,
   totalCount,
+  hasMore = false,
   onCancel,
   onSelectAll,
   onDeselectAll,
@@ -50,7 +52,7 @@ export default function SelectionActionBar({
               onClick={() => (allSelected ? onDeselectAll() : onSelectAll())}
               className="text-xs font-medium text-copper hover:text-copper-light transition-colors whitespace-nowrap"
             >
-              {allSelected ? "Deselect all" : "Select all"}
+              {allSelected ? "Deselect all" : hasMore ? "Select all loaded" : "Select all"}
             </button>
           </div>
 
