@@ -25,7 +25,7 @@ const mockList: MediaList = {
   ],
   total: 1,
   page: 1,
-  per_page: 50,
+  per_page: 10000,
 };
 
 // Mock WebSocket globally (usePhotos now uses useWebSocket internally)

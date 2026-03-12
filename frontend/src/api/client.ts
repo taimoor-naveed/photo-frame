@@ -61,7 +61,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   media: {
-    list(page = 1, perPage = 50): Promise<MediaList> {
+    list(page = 1, perPage = 10000): Promise<MediaList> {
       return request(`/media?page=${page}&per_page=${perPage}`);
     },
     get(id: number): Promise<Media> {

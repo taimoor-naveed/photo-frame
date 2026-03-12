@@ -363,8 +363,8 @@ def list_media(page: int = 1, per_page: int = 20, db: Session = Depends(get_db))
         page = 1
     if per_page < 1:
         per_page = 1
-    if per_page > 100:
-        per_page = 100
+    if per_page > 10000:
+        per_page = 10000
 
     total = db.query(Media).count()
     items = (

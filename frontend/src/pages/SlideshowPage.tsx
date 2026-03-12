@@ -36,7 +36,7 @@ export default function SlideshowPage() {
   const fetchData = useCallback(async () => {
     try {
       const [mediaRes, settingsRes] = await Promise.all([
-        api.media.list(1, 1000),
+        api.media.list(1, 10000),
         api.settings.get(),
       ]);
       setMediaList(mediaRes.items);
