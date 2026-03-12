@@ -17,13 +17,11 @@ def tmp_dirs(tmp_path):
     """Create temporary directories for uploads."""
     originals = tmp_path / "originals"
     thumbnails = tmp_path / "thumbnails"
-    transcoded = tmp_path / "transcoded"
     display = tmp_path / "display"
     originals.mkdir()
     thumbnails.mkdir()
-    transcoded.mkdir()
     display.mkdir()
-    return {"originals": originals, "thumbnails": thumbnails, "transcoded": transcoded, "display": display}
+    return {"originals": originals, "thumbnails": thumbnails, "display": display}
 
 
 @pytest.fixture()
@@ -47,11 +45,9 @@ def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     originals = tmp_path / "originals"
     thumbnails = tmp_path / "thumbnails"
-    transcoded = tmp_path / "transcoded"
     display = tmp_path / "display"
     originals.mkdir()
     thumbnails.mkdir()
-    transcoded.mkdir()
     display.mkdir()
 
     # All services/routers read from app.config at call time,
@@ -59,7 +55,6 @@ def client(tmp_path, monkeypatch):
     import app.config as config
     monkeypatch.setattr(config, "ORIGINALS_DIR", originals)
     monkeypatch.setattr(config, "THUMBNAILS_DIR", thumbnails)
-    monkeypatch.setattr(config, "TRANSCODED_DIR", transcoded)
     monkeypatch.setattr(config, "DISPLAY_DIR", display)
 
     # Patch database

@@ -13,7 +13,6 @@ const mockPhoto: Media = {
   duration: null,
   codec: null,
   thumb_filename: "thumb_abc.jpg",
-  transcoded_filename: null,
   display_filename: null,
 
   processing_status: "ready",
@@ -28,8 +27,7 @@ const mockVideo: Media = {
   original_name: "vacation.mp4",
   media_type: "video",
   thumb_filename: "thumb_clip.jpg",
-  transcoded_filename: "transcoded_clip.webm",
-  display_filename: null,
+  display_filename: "display_clip.mp4",
   duration: 15.5,
   codec: "h264",
 };
@@ -39,14 +37,14 @@ const mockProcessingVideo: Media = {
   id: 3,
   processing_status: "processing",
   processing_progress: 42,
-  transcoded_filename: null,
+  display_filename: null,
 };
 
 const mockErrorVideo: Media = {
   ...mockVideo,
   id: 4,
   processing_status: "error",
-  transcoded_filename: null,
+  display_filename: null,
 };
 
 describe("MediaDetailModal", () => {
@@ -80,7 +78,8 @@ describe("MediaDetailModal", () => {
     );
     const video = document.querySelector("video")!;
     expect(video).toBeTruthy();
-    expect(video.src).toContain("/uploads/transcoded/transcoded_clip.webm");
+    // h264 is browser-compatible, so modal plays the original at full resolution
+    expect(video.src).toContain("/uploads/originals/clip.mp4");
     expect(video).toHaveAttribute("data-media-id", "2");
     expect(video.autoplay).toBe(true);
     expect(video.muted).toBe(true);
@@ -227,7 +226,7 @@ describe("MediaDetailModal", () => {
     expect(downloadLink).toHaveAttribute("download", "sunset.jpg");
   });
 
-  it("renders download button with correct href for transcoded video", () => {
+  it("renders download button with correct href for video", () => {
     render(
       <MediaDetailModal
         media={mockVideo}
@@ -236,8 +235,8 @@ describe("MediaDetailModal", () => {
       />,
     );
     const downloadLink = screen.getByLabelText("Download");
-    // Download should use originalUrl (transcoded path for transcoded video)
-    expect(downloadLink).toHaveAttribute("href", "/uploads/transcoded/transcoded_clip.webm");
+    // Download should use originalUrl (always the original file)
+    expect(downloadLink).toHaveAttribute("href", "/uploads/originals/clip.mp4");
     expect(downloadLink).toHaveAttribute("download", "vacation.mp4");
   });
 
@@ -529,7 +528,7 @@ describe("MediaDetailModal", () => {
       ...mockProcessingVideo,
       processing_status: "ready",
       processing_progress: 100,
-      transcoded_filename: "transcoded_clip.webm",
+      display_filename: "display_clip.mp4",
     };
     rerender(
       <MediaDetailModal

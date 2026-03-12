@@ -93,7 +93,7 @@ def test_websocket_video_processing_complete(client, sample_hevc_video):
                 continue
             assert msg2["type"] == "media_processing_complete"
             assert msg2["payload"]["processing_status"] == "ready"
-            assert msg2["payload"]["transcoded_filename"] is not None
+            assert msg2["payload"]["display_filename"] is not None
             break
 
 

@@ -34,14 +34,6 @@ def test_path_traversal_thumbnails(client, sample_jpeg):
     )
 
 
-def test_path_traversal_transcoded(client):
-    """Same traversal attack on the transcoded endpoint."""
-    response = client.get("/uploads/transcoded/../../../etc/passwd")
-    assert response.status_code in (400, 404, 422), (
-        f"Path traversal succeeded! Got status {response.status_code}"
-    )
-
-
 def test_path_traversal_display(client):
     """Path traversal attack on the display endpoint must be blocked."""
     response = client.get("/uploads/display/../../../etc/passwd")
@@ -77,17 +69,6 @@ def test_null_byte_in_filename_thumbnails(client):
 
     with pytest.raises(HTTPException) as exc_info:
         _serve_file(config.THUMBNAILS_DIR, "test\x00.jpg")
-    assert exc_info.value.status_code == 400
-
-
-def test_null_byte_in_filename_transcoded(client):
-    """Null byte in transcoded filename must raise HTTPException(400)."""
-    from fastapi import HTTPException
-    from app.routers.uploads import _serve_file
-    from app import config
-
-    with pytest.raises(HTTPException) as exc_info:
-        _serve_file(config.TRANSCODED_DIR, "test\x00.mp4")
     assert exc_info.value.status_code == 400
 
 

@@ -13,7 +13,6 @@
 | `DELETE` | `/api/media/{id}`                 | Delete media + all associated files   |
 | `GET`    | `/uploads/originals/{filename}`   | Serve full-size image/video           |
 | `GET`    | `/uploads/thumbnails/{filename}`  | Serve thumbnail                       |
-| `GET`    | `/uploads/transcoded/{filename}`  | Serve transcoded video (H.264)        |
 | `GET`    | `/uploads/display/{filename}`     | Serve display-optimized media (1024x600)|
 
 ### Settings
@@ -52,7 +51,6 @@ media:
   duration    REAL                    -- seconds, NULL for photos
   codec       TEXT                    -- original codec, NULL for photos
   thumb_filename TEXT NOT NULL        -- thumbnail filename in thumbnails/
-  transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
   processing_status TEXT NOT NULL DEFAULT 'ready'  -- 'processing' | 'ready' | 'error'
   display_filename TEXT               -- display-optimized file (1024x600 max), NULL if within bounds
   content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection
@@ -107,10 +105,11 @@ Non-JPEG files (PNG, HEIC, etc.) skip Motion Photo detection. If video extractio
 **Phase 2 (background thread — if transcode or display scaling needed):**
 1. `ffmpeg` transcode to H.264 MP4 (Main profile, level 4.0, capped at 1024x600, `force_divisible_by=2`) with `-progress pipe:1`
 2. Uses `-map 0:v:0 -map 0:a:0?` to handle iPhone `.mov` files with extra metadata streams
-3. Parse progress, broadcast `media_processing_progress` events (throttled every 3%)
-4. On success: update DB to `"ready"`, broadcast `media_processing_complete`
-5. On failure: update DB to `"error"`, broadcast `media_processing_error`
-6. Post-processing: verify DB record still exists — delete orphaned output file if record was deleted during processing
+3. Output saved to `data/display/` as `display_{uuid}.mp4` — sets `display_filename` on DB record
+4. Parse progress, broadcast `media_processing_progress` events (throttled every 3%)
+5. On success: update DB to `"ready"`, broadcast `media_processing_complete`
+6. On failure: update DB to `"error"`, broadcast `media_processing_error`
+7. Post-processing: verify DB record still exists — delete orphaned output file if record was deleted during processing
 
 ### Future: Preserve Original Uploads
 
@@ -149,6 +148,14 @@ Long press (500ms) on any photo card enters selection mode. In selection mode:
 - Escape exits selection mode
 - Auto-exits when gallery empties
 - Stale IDs pruned when photos are deleted via WebSocket
+
+### Media URL Strategy
+Three URL helpers with distinct purposes:
+- **`originalUrl(media)`** — always the true uploaded file in `originals/` (for downloads and photo modal)
+- **`displayUrl(media)`** — display-optimized version in `display/` if available, else falls back to original (for slideshow only)
+- **`modalVideoUrl(media)`** — original if codec is browser-compatible (H.264/VP8/VP9/AV1), else display-optimized version (for video in gallery modal)
+
+Gallery modal: `originalUrl` for photos, `modalVideoUrl` for videos. Slideshow: `displayUrl` for everything. Download: always `originalUrl`.
 
 ### Download
 Download button in modal header triggers native `<a download>` for the original file.

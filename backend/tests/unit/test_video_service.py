@@ -262,8 +262,8 @@ def test_transcode_uses_main_profile(tmp_dirs, tmp_path):
 
     from app.services.video import transcode_to_h264
     output = transcode_to_h264(
-        src, "transcoded_test.mp4",
-        transcoded_dir=tmp_dirs["transcoded"],
+        src, "display_test.mp4",
+        display_dir=tmp_dirs["display"],
     )
 
     result = subprocess.run(

@@ -55,6 +55,11 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **Videos auto-play muted**, show first frame when ended with interval remaining
 - **No flash on add/delete**: playlist + currentIndex update atomically via combined state object
 
+## Refactoring Rules
+
+- **Trace all callers before changing a function's return value.** Grep for every call site. List them in your response with a verdict (still correct / needs update) before making any changes.
+- **Never update a test to make it pass without justifying why the old assertion was wrong.** A failing test after a refactor is a potential bug signal. Before changing any test assertion, state: "The old test expected [X]. This was [correct/incorrect] because [reason]." If the old behavior was correct, fix the code, not the test.
+
 ## Test Rules
 
 ### Update tests before running them
@@ -115,6 +120,7 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **Deploy is clean-slate**: `deploy.sh` uses `docker compose down -v`, backs up originals, rebuilds from scratch, then re-uploads originals through the API (so they get reprocessed with new code). The backup is verified and removed on success.
 - **Deployment procedure**: Use the `deploy` skill (`.claude/skills/deploy.md`) — it has the full step-by-step procedure including Pi Chromium restart.
 - **Use Playwright for frontend debugging**: When debugging visual/animation/state issues, use Playwright automatically via `docker compose --profile test run --rm e2e node -e "..."` to inspect DOM, check computed styles, and verify behavior — don't ask the user to check the browser console.
+- **Media URL rules**: Three URL helpers exist with distinct purposes: `originalUrl(media)` → always the true original file (for downloads + photo modal). `displayUrl(media)` → display-optimized version capped at 1024x600 (for slideshow only). `modalVideoUrl(media)` → original if codec is browser-compatible (h264/vp8/vp9/av1), else falls back to transcoded display version (for video in gallery modal). Download button always uses `originalUrl`. Gallery modal uses `originalUrl` for photos, `modalVideoUrl` for videos. Slideshow uses `displayUrl` for everything.
 
 ## Lessons Learned (QA Breaker — 2026-03-02)
 

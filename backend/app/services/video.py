@@ -91,7 +91,7 @@ def needs_transcode(codec: str) -> bool:
 def transcode_to_h264(
     video_path: Path,
     output_filename: str,
-    transcoded_dir: Path | None = None,
+    display_dir: Path | None = None,
     duration: float | None = None,
     on_progress: Callable[[int], None] | None = None,
 ) -> Path:
@@ -100,10 +100,10 @@ def transcode_to_h264(
     If *duration* and *on_progress* are provided, progress (0-100) is reported
     via the callback by parsing ffmpeg ``-progress`` output.
     """
-    if transcoded_dir is None:
-        transcoded_dir = config.TRANSCODED_DIR
+    if display_dir is None:
+        display_dir = config.DISPLAY_DIR
 
-    output_path = transcoded_dir / output_filename
+    output_path = display_dir / output_filename
 
     if on_progress and duration and duration > 0:
         return _transcode_with_progress(

@@ -20,7 +20,6 @@ function makePhoto(id: number, name?: string): Media {
     duration: null,
     codec: null,
     thumb_filename: `thumb_photo${id}.jpg`,
-    transcoded_filename: null,
     display_filename: null,
 
     processing_status: "ready" as const,
@@ -44,7 +43,6 @@ function makeVideo(
     duration: 3.5,
     codec: "h264",
     thumb_filename: `thumb_video${id}.jpg`,
-    transcoded_filename: null,
     display_filename: null,
 
     processing_status: status,

@@ -14,7 +14,6 @@ function makeMedia(id: number): Media {
     duration: null,
     codec: null,
     thumb_filename: `thumb_photo${id}.jpg`,
-    transcoded_filename: null,
     display_filename: null,
     processing_status: "ready" as const,
     content_hash: `hash${id}`,

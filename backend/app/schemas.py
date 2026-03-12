@@ -15,7 +15,6 @@ class MediaOut(BaseModel):
     duration: float | None = None
     codec: str | None = None
     thumb_filename: str
-    transcoded_filename: str | None = None
     display_filename: str | None = None
     processing_status: str = "ready"
     content_hash: str | None = None

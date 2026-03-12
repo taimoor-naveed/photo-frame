@@ -18,7 +18,6 @@ def test_media_out_serialization():
     d = data.model_dump()
     assert d["id"] == 1
     assert d["duration"] is None
-    assert d["transcoded_filename"] is None
 
 
 def test_media_out_video():
@@ -33,12 +32,12 @@ def test_media_out_video():
         duration=3.5,
         codec="h264",
         thumb_filename="thumb_clip.jpg",
-        transcoded_filename="tc_clip.mp4",
+        display_filename="display_clip.mp4",
         uploaded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     d = data.model_dump()
     assert d["duration"] == 3.5
-    assert d["transcoded_filename"] == "tc_clip.mp4"
+    assert d["display_filename"] == "display_clip.mp4"
 
 
 def test_settings_out():

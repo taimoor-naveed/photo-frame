@@ -34,11 +34,6 @@ def serve_thumbnail(filename: str):
     return _serve_file(config.THUMBNAILS_DIR, filename)
 
 
-@router.get("/transcoded/{filename}")
-def serve_transcoded(filename: str):
-    return _serve_file(config.TRANSCODED_DIR, filename)
-
-
 @router.get("/display/{filename}")
 def serve_display(filename: str):
     return _serve_file(config.DISPLAY_DIR, filename)

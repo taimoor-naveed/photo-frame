@@ -11,7 +11,6 @@ export interface Media {
   duration: number | null;
   codec: string | null;
   thumb_filename: string;
-  transcoded_filename: string | null;
   display_filename: string | null;
   processing_status: "processing" | "ready" | "error";
   processing_progress?: number; // 0-100, only during transcoding
@@ -143,20 +142,24 @@ export function thumbnailUrl(media: Media): string {
 }
 
 export function originalUrl(media: Media): string {
-  if (media.media_type === "video" && media.transcoded_filename) {
-    return `/uploads/transcoded/${media.transcoded_filename}`;
-  }
   return `/uploads/originals/${media.filename}`;
 }
 
 export function displayUrl(media: Media): string {
   if (media.display_filename) {
-    // Display files for videos that were transcoded are in transcoded dir,
-    // display-only scaled files are in display dir
-    if (media.media_type === "video" && media.transcoded_filename === media.display_filename) {
-      return `/uploads/transcoded/${media.display_filename}`;
-    }
     return `/uploads/display/${media.display_filename}`;
   }
   return originalUrl(media);
+}
+
+const BROWSER_COMPATIBLE_CODECS = new Set(["h264", "vp8", "vp9", "av1"]);
+
+/**
+ * Best video URL for the gallery modal: original if browser-compatible, else transcoded display.
+ */
+export function modalVideoUrl(media: Media): string {
+  if (media.codec && BROWSER_COMPATIBLE_CODECS.has(media.codec.toLowerCase())) {
+    return originalUrl(media);
+  }
+  return displayUrl(media);
 }
