@@ -13,10 +13,10 @@ All features merged to `main` and deployed. Slideshow running on Pi kiosk, backe
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 170 | All passing |
-| Frontend (vitest) | 146 | All passing |
+| Backend (pytest) | 61 | All passing |
+| Frontend (vitest) | 173 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~516** | **Green** |
+| **Total** | **~434** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
@@ -232,6 +232,18 @@ Added `data-media-id` attribute to foreground `<img>` and `<video>` in the `Slid
 - Added 2 new critical tests: first-photo-to-empty-slideshow and add-during-video-playback
 - Added `currentSlideMediaId()` helper
 
+### Consolidate transcoded/ into display/ (2026-03-12)
+
+Removed the separate `transcoded/` directory and `transcoded_filename` DB column. All processed video files (transcoded and display-scaled) now live in `display/` via `display_filename`. This eliminates the dual-directory confusion where transcoded files were sometimes in `transcoded/` and sometimes aliased as `display_filename`.
+
+- **DB**: Removed `transcoded_filename` column from media model and schema
+- **Backend config**: Removed `TRANSCODED_DIR`; all processed files go to `DISPLAY_DIR`
+- **Uploads router**: Removed `GET /uploads/transcoded/{filename}` endpoint
+- **Delete handlers**: No longer clean up from `transcoded/` — only `display/` cleanup needed
+- **Background transcode**: Output filename prefix changed to `display_` and writes directly to `display/`
+- **Frontend**: Removed `transcoded_filename` from `Media` interface. `originalUrl()` now always returns the true original file (no longer returned transcoded path for transcoded videos). New `modalVideoUrl()` helper: returns original if codec is browser-compatible (h264/vp8/vp9/av1), else falls back to display-optimized version. Gallery modal video player uses `modalVideoUrl()`.
+- **Tests**: Removed transcoded-specific security tests (path traversal, null byte). Updated all test fixtures to remove `transcoded_filename`. New `modalVideoUrl` tests (8 cases: codec fallbacks, browser-compatible codecs, case-insensitive matching).
+
 ### Display-Optimized Media + Download Button (2026-03-04)
 
 Slideshow now serves display-optimized media (1024x600 bounding box) instead of full originals, reducing bandwidth for RPi kiosk.
@@ -243,7 +255,7 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 - **Upload router**: Photos set `display_filename` from `process_image()`. Videos: all processed files (transcoded and display-scaled) go to `display/` via `display_filename`. Browser-compatible oversized videos get background scaling via `_scale_display_in_background()`.
 - **Delete handlers**: Clean up display files on single and bulk delete
 - **Serve display files**: `GET /uploads/display/{filename}` route
-- **Frontend**: `displayUrl(media)` helper — returns display file URL if available, falls back to `originalUrl()`. Slideshow `Slide` component + preloader use `displayUrl()`. Gallery modal keeps `originalUrl()` for full-res viewing.
+- **Frontend**: `displayUrl(media)` helper — returns display file URL if available, falls back to `originalUrl()`. Slideshow `Slide` component + preloader use `displayUrl()`. Gallery modal uses `originalUrl()` for photos, `modalVideoUrl()` for videos (original if browser-compatible codec, else display-optimized).
 - **Download button**: Added to `MediaDetailModal` header bar (before delete), downloads original via `<a download>`.
 
 ### Deployment Topology
