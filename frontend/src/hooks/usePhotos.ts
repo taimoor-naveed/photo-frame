@@ -40,11 +40,16 @@ export function usePhotos() {
     }
   }, []);
 
+  // Each fetchNextPage call gets a unique ID so stale finally blocks
+  // don't clear state that belongs to a newer request.
+  const loadMoreRequestIdRef = useRef(0);
+
   const fetchNextPage = useCallback(async () => {
     if (loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     const gen = generationRef.current;
+    const requestId = ++loadMoreRequestIdRef.current;
     try {
       const nextPage = pageRef.current + 1;
       const data = await api.media.list(nextPage, PER_PAGE);
@@ -58,8 +63,12 @@ export function usePhotos() {
       if (gen !== generationRef.current) return;
       setError(e instanceof Error ? e.message : "Failed to load media");
     } finally {
-      loadingMoreRef.current = false;
-      setLoadingMore(false);
+      // Only clear if this is still the latest request — a stale
+      // finally must not clobber state owned by a newer request.
+      if (requestId === loadMoreRequestIdRef.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
     }
   }, []);
 

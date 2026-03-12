@@ -393,4 +393,71 @@ describe("usePhotos", () => {
     });
     expect(result.current.loadingMore).toBe(false);
   });
+
+  it("old fetchNextPage finally does not clear loadingMore for new request", async () => {
+    const page1Items = Array.from({ length: 50 }, (_, i) => makeMedia(i + 1));
+
+    // Old page 2 (slow) and new page 2 (also slow)
+    let resolveOldPage2: ((v: Response) => void) | undefined;
+    const oldPage2Promise = new Promise<Response>((r) => { resolveOldPage2 = r; });
+    let resolveNewPage2: ((v: Response) => void) | undefined;
+    const newPage2Promise = new Promise<Response>((r) => { resolveNewPage2 = r; });
+
+    vi.spyOn(globalThis, "fetch")
+      // Initial fetch (page 1)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(page1Items, 75, 1),
+      } as Response)
+      // Old page 2 (slow)
+      .mockReturnValueOnce(oldPage2Promise)
+      // Reset fetch (page 1 again)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(page1Items, 75, 1),
+      } as Response)
+      // New page 2 (slow)
+      .mockReturnValueOnce(newPage2Promise);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // 1. Old fetchNextPage starts
+    act(() => { result.current.fetchNextPage(); });
+    expect(result.current.loadingMore).toBe(true);
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+    // 2. Reset via WS (clears loadingMore)
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_added", payload: makeMedia(99) });
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // 3. New fetchNextPage starts
+    act(() => { result.current.fetchNextPage(); });
+    expect(result.current.loadingMore).toBe(true);
+
+    // 4. Old request finishes — its finally must NOT clear loadingMore
+    await act(async () => {
+      resolveOldPage2!({
+        ok: true,
+        json: async () => makePage([], 75, 2),
+      } as Response);
+    });
+
+    // loadingMore must still be true (new request is in flight)
+    expect(result.current.loadingMore).toBe(true);
+
+    // 5. New request finishes — now loadingMore clears
+    await act(async () => {
+      resolveNewPage2!({
+        ok: true,
+        json: async () => makePage(Array.from({ length: 25 }, (_, i) => makeMedia(i + 51)), 75, 2),
+      } as Response);
+    });
+    expect(result.current.loadingMore).toBe(false);
+  });
 });
