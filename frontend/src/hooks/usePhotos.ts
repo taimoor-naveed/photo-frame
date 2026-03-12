@@ -21,6 +21,10 @@ export function usePhotos() {
 
   const fetchPhotos = useCallback(async () => {
     generationRef.current++;
+    // Clear any in-flight fetchNextPage state so the spinner disappears
+    // and the observer can resume after the reset completes
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     setLoading(true);
     setError(null);
     pageRef.current = 1;

@@ -54,9 +54,51 @@ const mockList3: MediaList = {
   per_page: 50,
 };
 
+// Mock IntersectionObserver for infinite scroll tests
+let intersectionCallback: IntersectionObserverCallback | null = null;
+
+class MockIntersectionObserver {
+  constructor(callback: IntersectionObserverCallback) {
+    intersectionCallback = callback;
+  }
+  observe = vi.fn();
+  disconnect = vi.fn();
+  unobserve = vi.fn();
+}
+
+// Mock WebSocket
+let wsInstances: MockWS[] = [];
+
+class MockWS {
+  static readonly OPEN = 1;
+  onopen: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((e: { data: string }) => void) | null = null;
+  readyState = 0;
+  close = vi.fn();
+  constructor() {
+    wsInstances.push(this);
+    setTimeout(() => {
+      this.readyState = 1;
+      this.onopen?.();
+    }, 0);
+  }
+
+  simulateMessage(data: object) {
+    this.onmessage?.({ data: JSON.stringify(data) });
+  }
+}
+
 beforeEach(() => {
+  wsInstances = [];
+  intersectionCallback = null;
   vi.restoreAllMocks();
   vi.useFakeTimers({ shouldAdvanceTime: true });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  vi.stubGlobal("WebSocket", MockWS as any);
 });
 
 afterEach(() => {
@@ -398,6 +440,28 @@ describe("GalleryPage", () => {
     expect(document.querySelector("video")).toBeNull();
   });
 
+  it("select all says 'Select all loaded' when more items exist", async () => {
+    // Simulate a page where hasMore is true (total > loaded items)
+    const items = Array.from({ length: 3 }, (_, i) => ({
+      ...mockMedia1,
+      id: i + 1,
+      filename: `photo${i + 1}.jpg`,
+      original_name: `photo${i + 1}.jpg`,
+      thumb_filename: `thumb_photo${i + 1}.jpg`,
+      content_hash: `hash${i + 1}`,
+    }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ items, total: 100, page: 1, per_page: 50 }),
+    } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    longPressCard(0);
+    expect(screen.getByText("Select all loaded")).toBeInTheDocument();
+  });
+
   it("select all selects all photos", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
@@ -410,5 +474,66 @@ describe("GalleryPage", () => {
     longPressCard(0);
     fireEvent.click(screen.getByTestId("selection-select-all"));
     expect(screen.getByText("3 items selected")).toBeInTheDocument();
+  });
+
+  // ─── Infinite Scroll Tests ───────────────────────────────
+
+  it("shows sentinel when hasMore is true", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ items: [mockMedia1], total: 100, page: 1, per_page: 50 }),
+    } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    // IntersectionObserver should have been constructed (sentinel exists)
+    expect(intersectionCallback).not.toBeNull();
+  });
+
+  it("does not show sentinel when all items loaded", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockList,
+    } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    // With only 1 item and total=1, hasMore is false — no observer created
+    expect(intersectionCallback).toBeNull();
+  });
+
+  it("loads next page when sentinel becomes visible", async () => {
+    const page2Items = [mockMedia2, mockMedia3];
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [mockMedia1], total: 3, page: 1, per_page: 50 }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: page2Items, total: 3, page: 2, per_page: 50 }),
+      } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    // Trigger intersection
+    await act(async () => {
+      intersectionCallback!(
+        [{ isIntersecting: true }] as IntersectionObserverEntry[],
+        {} as IntersectionObserver,
+      );
+    });
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    const page2Url = fetchSpy.mock.calls[1][0] as string;
+    expect(page2Url).toContain("page=2");
+
+    // All 3 photos should be visible
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-card")).toHaveLength(3);
+    });
   });
 });

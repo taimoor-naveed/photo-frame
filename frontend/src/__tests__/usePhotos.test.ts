@@ -345,4 +345,52 @@ describe("usePhotos", () => {
     const ids = result.current.photos.map((p) => p.id);
     expect(ids).not.toContain(51);
   });
+
+  it("reset clears loadingMore when fetchNextPage is in flight", async () => {
+    const page1Items = Array.from({ length: 50 }, (_, i) => makeMedia(i + 1));
+
+    // Page 2 resolves slowly
+    let resolvePage2: ((v: Response) => void) | undefined;
+    const page2Promise = new Promise<Response>((r) => { resolvePage2 = r; });
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(page1Items, 75, 1),
+      } as Response)
+      .mockReturnValueOnce(page2Promise)
+      // Reset fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(page1Items, 75, 1),
+      } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Start fetchNextPage (in flight)
+    act(() => { result.current.fetchNextPage(); });
+    expect(result.current.loadingMore).toBe(true);
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+    // Reset via WS event
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: 1 } });
+    });
+
+    // loadingMore should be cleared immediately by the reset
+    expect(result.current.loadingMore).toBe(false);
+
+    // Resolve stale page 2 — should not re-set loadingMore
+    await act(async () => {
+      resolvePage2!({
+        ok: true,
+        json: async () => makePage([], 75, 2),
+      } as Response);
+    });
+    expect(result.current.loadingMore).toBe(false);
+  });
 });
