@@ -41,20 +41,16 @@ Gallery uses `api.media.list(page, 50)` as before, just calls it repeatedly.
 async listAll(): Promise<Media[]> {
   const first = await this.list(1, 100);
   const items = [...first.items];
-  if (first.total <= 100) return items;
-
   const totalPages = Math.ceil(first.total / 100);
-  const remaining = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, i) => this.list(i + 2, 100))
-  );
-  for (const page of remaining) {
-    items.push(...page.items);
+  for (let page = 2; page <= totalPages; page++) {
+    const data = await this.list(page, 100);
+    items.push(...data.items);
   }
   return items;
 }
 ```
 
-Race condition note: if items are added/deleted between page fetches, results may have duplicates or gaps. Acceptable — low traffic, metadata only, WS events correct it.
+Sequential fetching (not `Promise.all`) to avoid hammering the backend with unbounded parallel requests at scale. Race condition note: if items are added/deleted between page fetches, results may have duplicates or gaps. Acceptable — low traffic, metadata only, WS events correct it.
 
 ### `SlideshowPage.tsx` changes
 - Replace `api.media.list(1, 1000)` with `api.media.listAll()` for initial load only

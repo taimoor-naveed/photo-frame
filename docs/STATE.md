@@ -36,7 +36,7 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 - **File serving**: originals, thumbnails, transcoded videos via FileResponse
 
 ### Frontend
-- **Gallery**: responsive grid, click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state, multi-select bulk deletion (long-press to select)
+- **Gallery**: responsive grid with infinite scroll pagination (50 per page), click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state, multi-select bulk deletion (long-press to select)
 - **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), show-in-slideshow (cross-device jump via WS), download, delete with confirmation, keyboard/backdrop dismiss
 - **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
 - **Settings**: interval slider (3-60s), transition type segmented control, instant save
@@ -73,6 +73,17 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 ---
 
 ## Recent Changes
+
+### Infinite Scroll Pagination (2026-03-12)
+
+Gallery now uses infinite scroll with IntersectionObserver instead of loading all media at once. Slideshow fetches all media sequentially via `listAll()`.
+
+- **`usePhotos` hook**: Paginated fetching (50 per page), `fetchNextPage` with race condition guards (generation token + request ID), `loadingMore`/`hasMore`/`loadMoreError` state
+- **`GalleryPage`**: IntersectionObserver sentinel triggers `fetchNextPage`, inline error with retry button, "Select all loaded" label when more items exist server-side
+- **`api/client.ts`**: `list(page, perPage)` signature, `listAll()` sequential pagination for slideshow
+- **`SlideshowPage`**: Uses `listAll()` to fetch all media sequentially (pages of 100)
+- **E2E fixtures**: `apiDeleteAllMedia` and `apiGetMedia` now paginate (backend caps per_page at 100)
+- **Tests**: 16 new `usePhotos` tests (race conditions, stale responses, concurrent calls, error handling), 7 new `GalleryPage` tests (sentinel, load-more error, retry)
 
 ### Motion Photo / Live Photo Support (2026-03-09)
 
@@ -251,7 +262,7 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 
 - [ ] **Photos are re-encoded on upload** — `process_image()` decodes, EXIF-rotates, and re-saves all images (quality 95). HEIC→JPEG conversion. Loses raw bytes and introduces generation loss. Preserving originals has known gotchas: `displayUrl()` null safety during processing window, width/height vs raw file dimensions after EXIF transpose, and all videos starting as "processing" if display versions are always generated. See prior attempt notes in `docs/SPEC.md` (Future: Preserve Original Uploads).
 - **No user auth** — single-user photo frame, no login needed
-- **1000 media limit** — slideshow fetches all media in one call; pagination needed at scale
+- **Slideshow fetches all media** — `listAll()` fetches sequentially in pages of 100; works fine for hundreds but not designed for thousands
 - **No offline mode** — requires network connection to backend
 - [ ] **Upload error messages show raw JSON** — `UploadPage.tsx` displays `xhr.responseText` directly, so users see `{"detail":"..."}` instead of the parsed human-readable message. Should parse the JSON and extract the `detail` field.
 - [ ] **Concurrent duplicate-upload race condition** — Deduplication uses hash→query→insert, which is not safe under concurrent uploads of the same file. Can produce `IntegrityError` instead of graceful dedup. **Fix:** Catch `IntegrityError` on `content_hash` insert and re-query by hash to return the existing row. Ensure the losing race's files are cleaned up from disk. Add explicit concurrent upload tests. **Files:** `backend/app/routers/media.py`, `backend/app/models.py`, backend integration tests.
