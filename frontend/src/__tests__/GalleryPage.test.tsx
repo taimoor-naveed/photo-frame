@@ -44,14 +44,14 @@ const mockList: MediaList = {
   items: [mockMedia1],
   total: 1,
   page: 1,
-  per_page: 10000,
+  per_page: 50,
 };
 
 const mockList3: MediaList = {
   items: [mockMedia1, mockMedia2, mockMedia3],
   total: 3,
   page: 1,
-  per_page: 10000,
+  per_page: 50,
 };
 
 beforeEach(() => {
@@ -98,7 +98,7 @@ describe("GalleryPage", () => {
   it("shows empty state when no photos", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ items: [], total: 0, page: 1, per_page: 10000 }),
+      json: async () => ({ items: [], total: 0, page: 1, per_page: 50 }),
     } as Response);
 
     renderGallery();
@@ -181,7 +181,7 @@ describe("GalleryPage", () => {
     } as Response);
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ items: [], total: 0, page: 1, per_page: 10000 }),
+      json: async () => ({ items: [], total: 0, page: 1, per_page: 50 }),
     } as Response);
 
     // Click trash (modal's delete button, not PhotoCard's)
@@ -322,7 +322,7 @@ describe("GalleryPage", () => {
     } as Response);
     fetchSpy.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ items: [mockMedia3], total: 1, page: 1, per_page: 10000 }),
+      json: async () => ({ items: [mockMedia3], total: 1, page: 1, per_page: 50 }),
     } as Response);
 
     // Click delete, then confirm
@@ -354,7 +354,7 @@ describe("GalleryPage", () => {
       items: [mockMedia1, processingMedia],
       total: 2,
       page: 1,
-      per_page: 10000,
+      per_page: 50,
     };
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,
@@ -382,7 +382,7 @@ describe("GalleryPage", () => {
       items: [processingMedia],
       total: 1,
       page: 1,
-      per_page: 10000,
+      per_page: 50,
     };
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
       ok: true,

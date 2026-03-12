@@ -19,7 +19,7 @@ export interface MediaItem {
 }
 
 export async function apiDeleteAllMedia(): Promise<void> {
-  const resp = await fetch(`${BACKEND_URL}/api/media?per_page=10000`);
+  const resp = await fetch(`${BACKEND_URL}/api/media?per_page=1000`);
   const data = await resp.json();
   for (const item of data.items) {
     await fetch(`${BACKEND_URL}/api/media/${item.id}`, { method: "DELETE" });
@@ -41,7 +41,7 @@ export async function apiGetMedia(): Promise<{
   items: MediaItem[];
   total: number;
 }> {
-  const resp = await fetch(`${BACKEND_URL}/api/media?per_page=10000`);
+  const resp = await fetch(`${BACKEND_URL}/api/media?per_page=1000`);
   return resp.json();
 }
 
