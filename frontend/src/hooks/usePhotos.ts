@@ -166,5 +166,5 @@ export function usePhotos() {
     fetchPhotos();
   }, [fetchPhotos]);
 
-  return { photos, total, loading, loadingMore, hasMore, error, loadMoreError, setLoadMoreError, deleteError, setDeleteError, uploadProgress, fetchPhotos, fetchNextPage, uploadFiles, deletePhoto, bulkDeletePhotos };
+  return { photos, total, loading, loadingMore, hasMore, error, loadMoreError, deleteError, setDeleteError, uploadProgress, fetchPhotos, fetchNextPage, uploadFiles, deletePhoto, bulkDeletePhotos };
 }
