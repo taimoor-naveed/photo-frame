@@ -35,11 +35,11 @@ export default function SlideshowPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [mediaRes, settingsRes] = await Promise.all([
-        api.media.list(1, 1000),
+      const [allMedia, settingsRes] = await Promise.all([
+        api.media.listAll(),
         api.settings.get(),
       ]);
-      setMediaList(mediaRes.items);
+      setMediaList(allMedia);
       setSettings(settingsRes);
     } catch {
       // Retry after 5s on failure

@@ -19,10 +19,17 @@ export interface MediaItem {
 }
 
 export async function apiDeleteAllMedia(): Promise<void> {
-  const resp = await fetch(`${BACKEND_URL}/api/media?per_page=1000`);
-  const data = await resp.json();
-  for (const item of data.items) {
-    await fetch(`${BACKEND_URL}/api/media/${item.id}`, { method: "DELETE" });
+  // Paginate through all items (backend caps per_page at 100)
+  let page = 1;
+  while (true) {
+    const resp = await fetch(`${BACKEND_URL}/api/media?page=${page}&per_page=100`);
+    const data = await resp.json();
+    if (data.items.length === 0) break;
+    for (const item of data.items) {
+      await fetch(`${BACKEND_URL}/api/media/${item.id}`, { method: "DELETE" });
+    }
+    // After deleting, page 1 shifts — always re-fetch page 1
+    page = 1;
   }
 }
 
@@ -41,8 +48,19 @@ export async function apiGetMedia(): Promise<{
   items: MediaItem[];
   total: number;
 }> {
-  const resp = await fetch(`${BACKEND_URL}/api/media?per_page=1000`);
-  return resp.json();
+  // Paginate through all items (backend caps per_page at 100)
+  const allItems: MediaItem[] = [];
+  let page = 1;
+  let total = 0;
+  while (true) {
+    const resp = await fetch(`${BACKEND_URL}/api/media?page=${page}&per_page=100`);
+    const data = await resp.json();
+    total = data.total;
+    allItems.push(...data.items);
+    if (allItems.length >= total) break;
+    page++;
+  }
+  return { items: allItems, total };
 }
 
 export async function apiDeleteMedia(id: number): Promise<void> {

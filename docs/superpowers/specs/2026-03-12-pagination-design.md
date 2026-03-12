@@ -1,4 +1,4 @@
-# Pagination: Gallery UI + Slideshow Fetch-All
+# Fix: Infinite Scroll Gallery + Slideshow Fetch-All
 
 ## Problem
 
@@ -10,31 +10,29 @@ The backend caps `per_page` at 100, but:
 
 Two different strategies for two different use cases:
 
-1. **Gallery** — paginated UI with 100 items per page, prev/next controls
-2. **Slideshow** — multi-page fetch to load all items into memory (metadata only, ~200 bytes per item)
+1. **Gallery** — infinite scroll: load 50 items at a time, fetch more as the user scrolls near the bottom
+2. **Slideshow** — multi-page fetch (`listAll()`) to load all items into memory (metadata only, ~200 bytes per item)
 
-## Gallery: Paginated UI
+## Gallery: Infinite Scroll
 
 ### `usePhotos` hook changes
-- Add state: `page` (default 1), constant `perPage = 100`
-- Derive `totalPages` from `Math.ceil(total / perPage)`
-- Keep `fetchPhotos` accepting a page argument internally, but the default is the current `page` state
-- Use `fetchPhotosRef` (ref pattern) so `handleWsEvent` can call the latest fetch without adding it to `useCallback` deps — this prevents WS reconnects (per CLAUDE.md: "Never add deps to `handleWsEvent`'s `useCallback`")
-- Expose: `page`, `totalPages`, `goToPage(n: number)`
-- `goToPage` sets page state, triggers refetch
-- After successful upload, reset to page 1 so the user sees their new item
-- WebSocket `media_added` / `media_deleted`: refetch current page via ref. If current page becomes empty (all items deleted), step back to `page - 1` (minimum 1)
-
-### New component: `Pagination.tsx`
-- Props: `page: number`, `totalPages: number`, `onPageChange: (page: number) => void`
-- Renders: `Previous` button | `Page X of Y` text | `Next` button
-- Previous disabled when `page === 1`, Next disabled when `page === totalPages`
-- Dark theme styling consistent with existing UI, 44px minimum touch targets
-- Hidden when `totalPages <= 1`
+- Add state: `page` (tracks next page to fetch), `hasMore` (whether more pages exist)
+- `photos` array accumulates across pages (append, not replace)
+- `fetchPhotos()` fetches page 1 (initial load), replaces array — used by WS events and upload
+- New `fetchNextPage()` — appends next page of results to existing array, increments `page`, sets `hasMore = false` when all loaded
+- Use `fetchPhotosRef` (ref pattern) so `handleWsEvent` can call fetch without being in `useCallback` deps — prevents WS reconnects
+- Expose: `hasMore`, `fetchNextPage`, `loadingMore` (separate from initial `loading`)
+- After upload: reset to page 1 (refetch from scratch so new item appears at top)
+- WS `media_added` / `media_deleted`: refetch from page 1 (reset accumulated list)
 
 ### `GalleryPage.tsx` changes
-- Import and render `Pagination` below the media grid
-- On page change, scroll to top via `window.scrollTo({ top: 0, behavior: 'smooth' })`
+- Add a sentinel `<div>` at the bottom of the grid
+- Use `IntersectionObserver` on the sentinel — when visible, call `fetchNextPage()`
+- Show a small spinner at the bottom while `loadingMore` is true
+- No other UI changes — grid looks the same, items just keep appearing as you scroll
+
+### `api/client.ts` — no changes for gallery
+Gallery uses `api.media.list(page, 50)` as before, just calls it repeatedly.
 
 ## Slideshow: Fetch All
 
@@ -56,45 +54,44 @@ async listAll(): Promise<Media[]> {
 }
 ```
 
-Race condition note: if items are added/deleted between page fetches, results may have duplicates or gaps. This is acceptable — low traffic, metadata only, and WS events will trigger a correction shortly after.
+Race condition note: if items are added/deleted between page fetches, results may have duplicates or gaps. Acceptable — low traffic, metadata only, WS events correct it.
 
 ### `SlideshowPage.tsx` changes
 - Replace `api.media.list(1, 1000)` with `api.media.listAll()` for initial load only
-- WebSocket handlers (`media_added`, `media_deleted`, `media_processing_complete`) keep their existing surgical insert/remove behavior — they do NOT refetch. This preserves shuffle order and current slide position.
+- WS handlers keep existing surgical insert/remove behavior (preserves shuffle + position)
 
 ## Backend
 
-No changes. The 100-item `per_page` cap and existing pagination logic are correct.
+No changes. The 100-item `per_page` cap stays.
 
 ## Files changed
 
 | File | Change |
 |------|--------|
 | `frontend/src/api/client.ts` | Add `listAll()` method |
-| `frontend/src/hooks/usePhotos.ts` | Add page state, `goToPage`, `fetchPhotosRef`, derive `totalPages` |
-| `frontend/src/components/Pagination.tsx` | New component |
-| `frontend/src/pages/GalleryPage.tsx` | Wire up `Pagination` component |
+| `frontend/src/hooks/usePhotos.ts` | Add infinite scroll state (`page`, `hasMore`, `fetchNextPage`, `loadingMore`), ref pattern for WS |
+| `frontend/src/pages/GalleryPage.tsx` | Add IntersectionObserver sentinel + loading spinner |
 | `frontend/src/pages/SlideshowPage.tsx` | Switch initial load to `listAll()` |
-| `frontend/src/__tests__/GalleryPage.test.tsx` | Add pagination tests |
-| `frontend/src/__tests__/SlideshowPage.test.tsx` | Update mocks for multi-page fetch |
-| New: `frontend/src/__tests__/Pagination.test.tsx` | Unit tests for Pagination component |
+| `frontend/src/__tests__/GalleryPage.test.tsx` | Add infinite scroll tests |
+| `frontend/src/__tests__/usePhotos.test.ts` | Add `fetchNextPage` tests |
+| `frontend/src/__tests__/SlideshowPage.test.tsx` | Update mocks for `listAll()` |
+| `e2e/fixtures/base.ts` | Update cleanup helpers to paginate through all items |
 
 ## Edge cases
 
-- **Delete last item on last page**: step back to previous page
-- **Only one page of results**: hide pagination controls
-- **Empty library**: no pagination shown (existing empty state handles this)
-- **Upload while on page > 1**: reset to page 1 after successful upload
-- **WebSocket media_added while on page 1**: refetch shows new item (newest first ordering)
-- **WebSocket media_added while on page 2+**: refetch current page (item appears on page 1, current page shifts)
+- **Fewer than 50 items**: single fetch, `hasMore = false`, no sentinel trigger
+- **Exact multiple of 50**: last fetch returns empty page, sets `hasMore = false`
+- **WS media_added/deleted during scroll**: reset to page 1, refetch from scratch
+- **Upload while scrolled down**: reset to page 1 so new item is visible at top
+- **Rapid scroll**: guard against concurrent `fetchNextPage` calls (skip if already `loadingMore`)
 - **listAll() race condition**: acceptable — WS events correct any inconsistency
 
 ## Key tests to add
 
-- Gallery: page navigation (next/prev), pagination hidden when <= 1 page
-- Gallery: WS delete on last page with one item steps back to previous page
-- Gallery: WS add while on page > 1 stays on current page
-- Gallery: upload resets to page 1
-- Slideshow: multi-page fetch combines all items
+- Gallery: initial load fetches page 1 with 50 items
+- Gallery: `fetchNextPage` appends items and increments page
+- Gallery: `hasMore = false` when all items loaded
+- Gallery: WS delete/add resets to page 1
+- Gallery: no concurrent `fetchNextPage` calls
+- Slideshow: `listAll()` combines multiple pages
 - Slideshow: WS handlers still do surgical updates (no refetch)
-- Pagination component: disabled states, hidden when single page

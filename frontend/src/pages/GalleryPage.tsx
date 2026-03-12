@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Media } from "../api/client";
 import MediaDetailModal from "../components/MediaDetailModal";
@@ -7,7 +7,7 @@ import SelectionActionBar from "../components/SelectionActionBar";
 import { usePhotos } from "../hooks/usePhotos";
 
 export default function GalleryPage() {
-  const { photos, total, loading, error, deleteError, setDeleteError, deletePhoto, bulkDeletePhotos } = usePhotos();
+  const { photos, total, loading, loadingMore, hasMore, error, deleteError, setDeleteError, deletePhoto, bulkDeletePhotos, fetchNextPage } = usePhotos();
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -81,6 +81,24 @@ export default function GalleryPage() {
     setSelectionMode(false);
     setSelectedIds(new Set());
   }, []);
+
+  // Infinite scroll sentinel
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!hasMore || loadingMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, fetchNextPage]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
@@ -187,6 +205,14 @@ export default function GalleryPage() {
           </div>
         ))}
       </div>
+
+      {hasMore && (
+        <div ref={sentinelRef} className="flex justify-center py-8">
+          {loadingMore && (
+            <div className="w-6 h-6 border-2 border-warm-muted/30 border-t-warm-muted rounded-full animate-spin" />
+          )}
+        </div>
+      )}
 
       {selectionMode && (
         <SelectionActionBar

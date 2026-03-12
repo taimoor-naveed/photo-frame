@@ -57,7 +57,7 @@ const mockMedia: MediaList = {
   items: [makePhoto(1, "sunset.jpg"), makeVideo(2)],
   total: 2,
   page: 1,
-  per_page: 1000,
+  per_page: 100,
 };
 
 // Mock WebSocket that captures instances for sending messages
@@ -108,7 +108,7 @@ function mockFetch(items: Media[], settings: Settings = mockSettings) {
           items,
           total: items.length,
           page: 1,
-          per_page: 1000,
+          per_page: 100,
         }),
       } as Response);
     }
