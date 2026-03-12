@@ -11,6 +11,7 @@ export function usePhotos() {
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const pageRef = useRef(1);
@@ -20,23 +21,28 @@ export function usePhotos() {
   const generationRef = useRef(0);
 
   const fetchPhotos = useCallback(async () => {
-    generationRef.current++;
+    const gen = ++generationRef.current;
     // Clear any in-flight fetchNextPage state so the spinner disappears
     // and the observer can resume after the reset completes
     loadingMoreRef.current = false;
     setLoadingMore(false);
     setLoading(true);
     setError(null);
+    setLoadMoreError(null);
     pageRef.current = 1;
     try {
       const data = await api.media.list(1, PER_PAGE);
+      if (gen !== generationRef.current) return;
       setPhotos(data.items);
       setTotal(data.total);
       setHasMore(data.items.length < data.total);
     } catch (e) {
+      if (gen !== generationRef.current) return;
       setError(e instanceof Error ? e.message : "Failed to load media");
     } finally {
-      setLoading(false);
+      if (gen === generationRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -48,6 +54,7 @@ export function usePhotos() {
     if (loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
+    setLoadMoreError(null);
     const gen = generationRef.current;
     const requestId = ++loadMoreRequestIdRef.current;
     try {
@@ -59,9 +66,10 @@ export function usePhotos() {
       setPhotos((prev) => [...prev, ...data.items]);
       setTotal(data.total);
       setHasMore(nextPage * PER_PAGE < data.total);
+      setLoadMoreError(null);
     } catch (e) {
       if (gen !== generationRef.current) return;
-      setError(e instanceof Error ? e.message : "Failed to load media");
+      setLoadMoreError(e instanceof Error ? e.message : "Failed to load media");
     } finally {
       // Only clear if this is still the latest request — a stale
       // finally must not clobber state owned by a newer request.
@@ -158,5 +166,5 @@ export function usePhotos() {
     fetchPhotos();
   }, [fetchPhotos]);
 
-  return { photos, total, loading, loadingMore, hasMore, error, deleteError, setDeleteError, uploadProgress, fetchPhotos, fetchNextPage, uploadFiles, deletePhoto, bulkDeletePhotos };
+  return { photos, total, loading, loadingMore, hasMore, error, loadMoreError, setLoadMoreError, deleteError, setDeleteError, uploadProgress, fetchPhotos, fetchNextPage, uploadFiles, deletePhoto, bulkDeletePhotos };
 }

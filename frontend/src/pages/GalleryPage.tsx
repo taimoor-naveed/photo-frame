@@ -7,7 +7,7 @@ import SelectionActionBar from "../components/SelectionActionBar";
 import { usePhotos } from "../hooks/usePhotos";
 
 export default function GalleryPage() {
-  const { photos, total, loading, loadingMore, hasMore, error, deleteError, setDeleteError, deletePhoto, bulkDeletePhotos, fetchNextPage } = usePhotos();
+  const { photos, total, loading, loadingMore, hasMore, error, loadMoreError, deleteError, setDeleteError, deletePhoto, bulkDeletePhotos, fetchNextPage } = usePhotos();
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -87,7 +87,7 @@ export default function GalleryPage() {
   const fetchNextPageRef = useRef(fetchNextPage);
   useEffect(() => { fetchNextPageRef.current = fetchNextPage; }, [fetchNextPage]);
   useEffect(() => {
-    if (!hasMore || loadingMore) return;
+    if (!hasMore || loadingMore || loadMoreError) return;
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver(
@@ -100,7 +100,7 @@ export default function GalleryPage() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loadingMore]);
+  }, [hasMore, loadingMore, loadMoreError]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = [...selectedIds];
@@ -209,9 +209,20 @@ export default function GalleryPage() {
       </div>
 
       {hasMore && (
-        <div ref={sentinelRef} className="flex justify-center py-8">
+        <div ref={sentinelRef} className="flex flex-col items-center py-8 gap-4">
           {loadingMore && (
             <div className="w-6 h-6 border-2 border-warm-muted/30 border-t-warm-muted rounded-full animate-spin" />
+          )}
+          {loadMoreError && (
+            <div data-testid="load-more-error" className="rounded-xl bg-red-500/10 border border-red-500/20 px-6 py-3 text-center">
+              <p className="text-sm text-red-400 mb-2">{loadMoreError}</p>
+              <button
+                onClick={() => fetchNextPage()}
+                className="text-sm text-warm-gray hover:text-warm-white underline underline-offset-4"
+              >
+                Retry
+              </button>
+            </div>
           )}
         </div>
       )}

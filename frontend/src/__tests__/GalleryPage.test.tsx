@@ -56,10 +56,12 @@ const mockList3: MediaList = {
 
 // Mock IntersectionObserver for infinite scroll tests
 let intersectionCallback: IntersectionObserverCallback | null = null;
+let observerConstructCount = 0;
 
 class MockIntersectionObserver {
   constructor(callback: IntersectionObserverCallback) {
     intersectionCallback = callback;
+    observerConstructCount++;
   }
   observe = vi.fn();
   disconnect = vi.fn();
@@ -93,6 +95,7 @@ class MockWS {
 beforeEach(() => {
   wsInstances = [];
   intersectionCallback = null;
+  observerConstructCount = 0;
   vi.restoreAllMocks();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -502,6 +505,126 @@ describe("GalleryPage", () => {
 
     // With only 1 item and total=1, hasMore is false — no observer created
     expect(intersectionCallback).toBeNull();
+  });
+
+  it("load-more failure shows inline error, not full-page error", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [mockMedia1], total: 3, page: 1, per_page: 50 }),
+      } as Response)
+      // Page 2 fails
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => "Server error",
+      } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    // Trigger infinite scroll
+    await act(async () => {
+      intersectionCallback!(
+        [{ isIntersecting: true }] as IntersectionObserverEntry[],
+        {} as IntersectionObserver,
+      );
+    });
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+
+    // Gallery grid must still be visible (not replaced by full-page error)
+    expect(screen.getByText("Gallery")).toBeInTheDocument();
+    expect(screen.getByTestId("photo-card")).toBeInTheDocument();
+
+    // Inline load-more error should be shown with retry
+    await waitFor(() => {
+      expect(screen.getByTestId("load-more-error")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Retry")).toBeInTheDocument();
+  });
+
+  it("load-more retry button triggers another fetchNextPage", async () => {
+    const page2Items = [mockMedia2, mockMedia3];
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [mockMedia1], total: 3, page: 1, per_page: 50 }),
+      } as Response)
+      // Page 2 fails first time
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => "Server error",
+      } as Response)
+      // Page 2 succeeds on retry
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: page2Items, total: 3, page: 2, per_page: 50 }),
+      } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    // Trigger intersection — fails
+    await act(async () => {
+      intersectionCallback!(
+        [{ isIntersecting: true }] as IntersectionObserverEntry[],
+        {} as IntersectionObserver,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("load-more-error")).toBeInTheDocument();
+    });
+
+    // Click retry
+    fireEvent.click(screen.getByText("Retry"));
+
+    // Should succeed and show all 3 items
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-card")).toHaveLength(3);
+    });
+    expect(screen.queryByTestId("load-more-error")).not.toBeInTheDocument();
+  });
+
+  it("does not auto-retry when load-more error is present", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [mockMedia1], total: 3, page: 1, per_page: 50 }),
+      } as Response)
+      // Page 2 fails
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => "Server error",
+      } as Response);
+
+    renderGallery();
+    await waitForPhotos();
+
+    // Wait for observer to be created
+    await waitFor(() => expect(intersectionCallback).not.toBeNull());
+    const countBeforeIntersection = observerConstructCount;
+
+    // Trigger intersection — fails
+    await act(async () => {
+      intersectionCallback!(
+        [{ isIntersecting: true }] as IntersectionObserverEntry[],
+        {} as IntersectionObserver,
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("load-more-error")).toBeInTheDocument();
+    });
+
+    // The observer effect re-runs when loadingMore flips back to false.
+    // With loadMoreError set, the effect should return early — no new
+    // IntersectionObserver should be constructed. In a real browser this
+    // means no automatic callback, preventing a retry loop.
+    expect(observerConstructCount).toBe(countBeforeIntersection);
   });
 
   it("loads next page when sentinel becomes visible", async () => {

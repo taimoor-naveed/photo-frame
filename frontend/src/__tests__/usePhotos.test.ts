@@ -55,11 +55,8 @@ class MockWS {
 const OriginalWebSocket = globalThis.WebSocket;
 
 beforeEach(() => {
-  wsInstances = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  vi.stubGlobal("WebSocket", MockWS as any);
   vi.restoreAllMocks();
-  // Re-stub after restoreAllMocks since it clears stubs
+  wsInstances = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   vi.stubGlobal("WebSocket", MockWS as any);
 });
@@ -392,6 +389,146 @@ describe("usePhotos", () => {
       } as Response);
     });
     expect(result.current.loadingMore).toBe(false);
+  });
+
+  it("discards stale fetchPhotos response when a newer reset resolves first", async () => {
+    const staleItems = [makeMedia(1), makeMedia(2)];
+    const freshItems = [makeMedia(99)];
+
+    // Initial fetch resolves quickly
+    // Then two overlapping fetchPhotos calls: slow (stale) + fast (fresh)
+    let resolveStale: ((v: Response) => void) | undefined;
+    const stalePromise = new Promise<Response>((r) => { resolveStale = r; });
+
+    vi.spyOn(globalThis, "fetch")
+      // Initial mount fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage([makeMedia(1)], 1, 1),
+      } as Response)
+      // First reset (slow — will become stale)
+      .mockReturnValueOnce(stalePromise)
+      // Second reset (fast — the fresh winner)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(freshItems, 1, 1),
+      } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.photos[0].id).toBe(1);
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    const ws = getLatestWs();
+
+    // First WS event triggers a reset (slow fetch, still in flight)
+    await act(async () => {
+      ws.simulateMessage({ type: "media_added", payload: makeMedia(50) });
+    });
+
+    // Second WS event triggers another reset (fast fetch, resolves immediately)
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: 50 } });
+    });
+
+    // Fresh data should be showing
+    await waitFor(() => expect(result.current.photos[0].id).toBe(99));
+
+    // Now the stale response resolves AFTER the fresh one
+    await act(async () => {
+      resolveStale!({
+        ok: true,
+        json: async () => makePage(staleItems, 2, 1),
+      } as Response);
+    });
+
+    // Stale data must NOT overwrite the fresh data
+    expect(result.current.photos).toHaveLength(1);
+    expect(result.current.photos[0].id).toBe(99);
+    expect(result.current.total).toBe(1);
+  });
+
+  it("stale fetchPhotos error does not overwrite fresh data", async () => {
+    // A failing reset followed by a successful reset:
+    // if the failure resolves last, it must not set error state
+    let resolveStale: ((v: Response) => void) | undefined;
+    const stalePromise = new Promise<Response>((r) => { resolveStale = r; });
+
+    vi.spyOn(globalThis, "fetch")
+      // Initial fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage([makeMedia(1)], 1, 1),
+      } as Response)
+      // Stale reset (slow, will fail)
+      .mockReturnValueOnce(stalePromise)
+      // Fresh reset (fast, succeeds)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage([makeMedia(99)], 1, 1),
+      } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Flush WS
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    const ws = getLatestWs();
+
+    // Trigger two resets
+    await act(async () => {
+      ws.simulateMessage({ type: "media_added", payload: makeMedia(50) });
+    });
+    await act(async () => {
+      ws.simulateMessage({ type: "media_deleted", payload: { id: 50 } });
+    });
+
+    await waitFor(() => expect(result.current.photos[0].id).toBe(99));
+
+    // Stale request fails
+    await act(async () => {
+      resolveStale!({
+        ok: false,
+        status: 500,
+        text: async () => "Server error",
+      } as Response);
+    });
+
+    // Error must NOT be set — fresh data is still showing
+    expect(result.current.error).toBeNull();
+    expect(result.current.photos[0].id).toBe(99);
+  });
+
+  it("fetchNextPage failure keeps existing photos and sets loadMoreError", async () => {
+    const page1Items = Array.from({ length: 50 }, (_, i) => makeMedia(i + 1));
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => makePage(page1Items, 75, 1),
+      } as Response)
+      // Page 2 fails
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => "Server error",
+      } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.photos).toHaveLength(50);
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+
+    // Photos must still be there
+    expect(result.current.photos).toHaveLength(50);
+    // Fatal error must NOT be set
+    expect(result.current.error).toBeNull();
+    // Load-more error should be set
+    expect(result.current.loadMoreError).toBeTruthy();
   });
 
   it("old fetchNextPage finally does not clear loadingMore for new request", async () => {
