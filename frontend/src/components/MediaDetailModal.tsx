@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Media } from "../api/client";
-import { api, originalUrl, thumbnailUrl } from "../api/client";
+import { api, modalVideoUrl, originalUrl, thumbnailUrl } from "../api/client";
 import ConfirmDialog from "./ConfirmDialog";
 
 interface MediaDetailModalProps {
@@ -268,7 +268,7 @@ export default function MediaDetailModal({
               </div>
             ) : media.media_type === "video" ? (
               <video
-                src={originalUrl(media)}
+                src={modalVideoUrl(media)}
                 data-media-id={media.id}
                 className="max-w-full max-h-[70vh] object-contain"
                 autoPlay
