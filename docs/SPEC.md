@@ -13,7 +13,6 @@
 | `DELETE` | `/api/media/{id}`                 | Delete media + all associated files   |
 | `GET`    | `/uploads/originals/{filename}`   | Serve full-size image/video           |
 | `GET`    | `/uploads/thumbnails/{filename}`  | Serve thumbnail                       |
-| `GET`    | `/uploads/transcoded/{filename}`  | Serve transcoded video (H.264)        |
 | `GET`    | `/uploads/display/{filename}`     | Serve display-optimized media (1024x600)|
 
 ### Settings
@@ -52,7 +51,6 @@ media:
   duration    REAL                    -- seconds, NULL for photos
   codec       TEXT                    -- original codec, NULL for photos
   thumb_filename TEXT NOT NULL        -- thumbnail filename in thumbnails/
-  transcoded_filename TEXT            -- transcoded video filename, NULL if not needed
   processing_status TEXT NOT NULL DEFAULT 'ready'  -- 'processing' | 'ready' | 'error'
   display_filename TEXT               -- display-optimized file (1024x600 max), NULL if within bounds
   content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection

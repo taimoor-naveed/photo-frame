@@ -19,7 +19,6 @@ class Media(Base):
     duration: Mapped[float | None] = mapped_column(Float, nullable=True)  # seconds, video only
     codec: Mapped[str | None] = mapped_column(String, nullable=True)  # video codec
     thumb_filename: Mapped[str] = mapped_column(String, nullable=False)
-    transcoded_filename: Mapped[str | None] = mapped_column(String, nullable=True)
     display_filename: Mapped[str | None] = mapped_column(String, nullable=True)
     processing_status: Mapped[str] = mapped_column(
         String, nullable=False, default="ready"

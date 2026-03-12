@@ -184,14 +184,14 @@ const mockProcessingVideo: Media = {
   id: 3,
   processing_status: "processing",
   processing_progress: 42,
-  transcoded_filename: null,
+  display_filename: null,
 };
 
 const mockErrorVideo: Media = {
   ...mockVideo,
   id: 4,
   processing_status: "error",
-  transcoded_filename: null,
+  display_filename: null,
 };
 
 it("shows processing overlay instead of video player for processing video", () => {

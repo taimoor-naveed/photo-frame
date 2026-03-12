@@ -640,12 +640,6 @@ def test_delete_during_processing_no_orphaned_files(client):
     # Wait for background thread to finish (it should clean up after itself)
     time.sleep(5)
 
-    # No orphaned transcoded files should exist
-    transcoded_files = list(cfg.TRANSCODED_DIR.iterdir())
-    assert len(transcoded_files) == 0, (
-        f"Orphaned transcoded files after delete-during-processing: {[f.name for f in transcoded_files]}"
-    )
-
     # No orphaned display files should exist
     display_files = list(cfg.DISPLAY_DIR.iterdir())
     assert len(display_files) == 0, (

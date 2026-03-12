@@ -33,7 +33,7 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 - **Progress tracking**: ffmpeg `-progress pipe:1` parsed in real-time, broadcast via WebSocket
 - **Duplicate detection**: SHA-256 content hash, returns existing item if duplicate
 - **WebSocket**: real-time events for media_added, media_deleted, media_processing_complete, media_processing_progress, settings_changed, slideshow_jump
-- **File serving**: originals, thumbnails, transcoded videos via FileResponse
+- **File serving**: originals, thumbnails, display-optimized files via FileResponse
 
 ### Frontend
 - **Gallery**: responsive grid with infinite scroll pagination (50 per page), click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state, multi-select bulk deletion (long-press to select)
@@ -240,7 +240,7 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 - **DB**: `display_filename` column on media table (nullable)
 - **Image processing**: `process_image()` generates display JPEG (Q90, LANCZOS) when `width > 1024 or height > 600`
 - **Video processing**: `transcode_to_h264()` now includes scale filter capping at 1024x600. New `scale_video_for_display()` for browser-compatible oversized videos. Background thread pattern matches existing transcode flow.
-- **Upload router**: Photos set `display_filename` from `process_image()`. Videos: transcoded ones get `display_filename = transcoded_filename` (already scaled). Browser-compatible oversized videos get background scaling via `_scale_display_in_background()`.
+- **Upload router**: Photos set `display_filename` from `process_image()`. Videos: all processed files (transcoded and display-scaled) go to `display/` via `display_filename`. Browser-compatible oversized videos get background scaling via `_scale_display_in_background()`.
 - **Delete handlers**: Clean up display files on single and bulk delete
 - **Serve display files**: `GET /uploads/display/{filename}` route
 - **Frontend**: `displayUrl(media)` helper — returns display file URL if available, falls back to `originalUrl()`. Slideshow `Slide` component + preloader use `displayUrl()`. Gallery modal keeps `originalUrl()` for full-res viewing.

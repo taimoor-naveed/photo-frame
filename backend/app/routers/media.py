@@ -37,7 +37,7 @@ def _transcode_in_background(
 ) -> None:
     """Run ffmpeg transcode in a background thread, then update DB + notify clients."""
     try:
-        transcoded_filename = f"{uuid.uuid4()}.mp4"
+        display_filename = f"display_{uuid.uuid4()}.mp4"
         last_broadcast = [0]  # mutable container for closure
 
         def _on_progress(pct: int) -> None:
@@ -50,7 +50,7 @@ def _transcode_in_background(
                 })
 
         output_path = transcode_to_h264(
-            original_path, transcoded_filename,
+            original_path, display_filename,
             duration=duration, on_progress=_on_progress,
         )
 
@@ -59,8 +59,7 @@ def _transcode_in_background(
             media = db.query(Media).filter(Media.id == media_id).first()
             if media:
                 media.processing_status = "ready"
-                media.transcoded_filename = transcoded_filename
-                media.display_filename = transcoded_filename  # transcode already scales to 1024x600
+                media.display_filename = display_filename
                 db.commit()
                 db.refresh(media)
                 _broadcast(loop, {
@@ -422,8 +421,6 @@ async def bulk_delete_media(body: BulkDeleteRequest, db: Session = Depends(get_d
         ]:
             path.unlink(missing_ok=True)
 
-        if media.transcoded_filename:
-            (config.TRANSCODED_DIR / media.transcoded_filename).unlink(missing_ok=True)
         if media.display_filename:
             (config.DISPLAY_DIR / media.display_filename).unlink(missing_ok=True)
 
@@ -454,8 +451,6 @@ async def delete_media(media_id: int, db: Session = Depends(get_db)):
     ]:
         path.unlink(missing_ok=True)
 
-    if media.transcoded_filename:
-        (config.TRANSCODED_DIR / media.transcoded_filename).unlink(missing_ok=True)
     if media.display_filename:
         (config.DISPLAY_DIR / media.display_filename).unlink(missing_ok=True)
 

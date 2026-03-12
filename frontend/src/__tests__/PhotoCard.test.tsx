@@ -13,7 +13,6 @@ const mockMedia: Media = {
   duration: null,
   codec: null,
   thumb_filename: "thumb_abc.jpg",
-  transcoded_filename: null,
   display_filename: null,
 
   processing_status: "ready",

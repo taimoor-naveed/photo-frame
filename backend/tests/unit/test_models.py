@@ -22,7 +22,6 @@ def test_media_creation(db_session):
     assert media.media_type == "photo"
     assert media.duration is None
     assert media.codec is None
-    assert media.transcoded_filename is None
     assert isinstance(media.uploaded_at, datetime)
 
 
@@ -37,7 +36,7 @@ def test_media_video_fields(db_session):
         duration=3.5,
         codec="h264",
         thumb_filename="thumb_clip.jpg",
-        transcoded_filename="transcoded_clip.mp4",
+        display_filename="display_clip.mp4",
     )
     db_session.add(media)
     db_session.commit()
@@ -45,7 +44,7 @@ def test_media_video_fields(db_session):
 
     assert media.duration == 3.5
     assert media.codec == "h264"
-    assert media.transcoded_filename == "transcoded_clip.mp4"
+    assert media.display_filename == "display_clip.mp4"
 
 
 def test_settings_defaults(db_session):

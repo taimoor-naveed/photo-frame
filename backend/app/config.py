@@ -5,7 +5,6 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "./data"))
 DB_PATH = DATA_DIR / "photos.db"
 ORIGINALS_DIR = DATA_DIR / "originals"
 THUMBNAILS_DIR = DATA_DIR / "thumbnails"
-TRANSCODED_DIR = DATA_DIR / "transcoded"
 DISPLAY_DIR = DATA_DIR / "display"
 
 DATABASE_URL = f"sqlite:///{DB_PATH}"

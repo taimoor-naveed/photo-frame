@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements-dev.txt
 COPY . .
 
 # Create data directories
-RUN mkdir -p /app/data/originals /app/data/thumbnails /app/data/transcoded
+RUN mkdir -p /app/data/originals /app/data/thumbnails /app/data/display
 
 EXPOSE 8000
 

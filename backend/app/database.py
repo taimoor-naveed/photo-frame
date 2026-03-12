@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from app.config import DATABASE_URL, DATA_DIR, DISPLAY_DIR, ORIGINALS_DIR, THUMBNAILS_DIR, TRANSCODED_DIR
+from app.config import DATABASE_URL, DATA_DIR, DISPLAY_DIR, ORIGINALS_DIR, THUMBNAILS_DIR
 
 
 class Base(DeclarativeBase):
@@ -14,7 +14,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     """Create all tables and ensure data directories exist."""
-    for d in [DATA_DIR, ORIGINALS_DIR, THUMBNAILS_DIR, TRANSCODED_DIR, DISPLAY_DIR]:
+    for d in [DATA_DIR, ORIGINALS_DIR, THUMBNAILS_DIR, DISPLAY_DIR]:
         d.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
 
