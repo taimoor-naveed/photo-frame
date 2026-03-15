@@ -125,4 +125,152 @@ describe("useWebSocket", () => {
 
     expect(wsInstances[0].close).toHaveBeenCalled();
   });
+
+  it("does not reconnect after unmount", async () => {
+    let unmountFn: () => void;
+    await act(async () => {
+      const { unmount } = renderHook(() => useWebSocket());
+      unmountFn = unmount;
+    });
+
+    act(() => {
+      wsInstances[0].simulateOpen();
+    });
+
+    const instanceCountBeforeUnmount = wsInstances.length;
+
+    act(() => {
+      unmountFn!();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(wsInstances).toHaveLength(instanceCountBeforeUnmount);
+  });
+
+  it("does not reconnect when close fires after cleanup", async () => {
+    let unmountFn: () => void;
+    await act(async () => {
+      const { unmount } = renderHook(() => useWebSocket());
+      unmountFn = unmount;
+    });
+
+    const ws = wsInstances[0];
+
+    act(() => {
+      ws.simulateOpen();
+    });
+
+    // Unmount without the mock auto-firing onclose — simulate delayed delivery
+    // Override close to NOT auto-fire onclose for this test
+    ws.close = vi.fn();
+
+    act(() => {
+      unmountFn!();
+    });
+
+    const instanceCountAfterUnmount = wsInstances.length;
+
+    // Now onclose fires after cleanup has finished
+    act(() => {
+      ws.simulateClose();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(wsInstances).toHaveLength(instanceCountAfterUnmount);
+  });
+
+  it("reconnects after unexpected disconnect (not unmount)", async () => {
+    await act(async () => {
+      renderHook(() => useWebSocket());
+    });
+
+    act(() => {
+      wsInstances[0].simulateOpen();
+    });
+
+    act(() => {
+      wsInstances[0].simulateClose();
+    });
+
+    expect(wsInstances).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(wsInstances).toHaveLength(2);
+  });
+
+  it("reconnects on disconnect after StrictMode remount", async () => {
+    // Mount
+    let unmountFn: () => void;
+    await act(async () => {
+      const { unmount } = renderHook(() => useWebSocket());
+      unmountFn = unmount;
+    });
+
+    // Unmount (StrictMode cleanup) — sets isShuttingDown = true
+    act(() => {
+      unmountFn!();
+    });
+
+    // Remount (StrictMode re-run) — should reset isShuttingDown = false
+    await act(async () => {
+      renderHook(() => useWebSocket());
+    });
+
+    const remountedWs = wsInstances[wsInstances.length - 1];
+
+    act(() => {
+      remountedWs.simulateOpen();
+    });
+
+    // Unexpected disconnect on the remounted instance
+    act(() => {
+      remountedWs.simulateClose();
+    });
+
+    const instancesBeforeReconnect = wsInstances.length;
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    // Should reconnect because isShuttingDown was reset
+    expect(wsInstances).toHaveLength(instancesBeforeReconnect + 1);
+  });
+
+  it("does not stack reconnect timers on rapid disconnects", async () => {
+    await act(async () => {
+      renderHook(() => useWebSocket());
+    });
+
+    act(() => {
+      wsInstances[0].simulateOpen();
+    });
+
+    // Two rapid disconnects
+    act(() => {
+      wsInstances[0].simulateClose();
+    });
+
+    act(() => {
+      wsInstances[0].simulateClose();
+    });
+
+    const instancesBeforeTimer = wsInstances.length;
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    // Only one new instance, not two
+    expect(wsInstances).toHaveLength(instancesBeforeTimer + 1);
+  });
 });
