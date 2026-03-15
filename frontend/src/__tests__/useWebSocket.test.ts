@@ -11,7 +11,10 @@ class MockWS {
   onclose: (() => void) | null = null;
   onerror: (() => void) | null = null;
   readyState = 0;
-  close = vi.fn();
+  close = vi.fn(() => {
+    this.readyState = 3;
+    this.onclose?.();
+  });
 
   constructor(_url: string) {
     wsInstances.push(this);
@@ -57,7 +60,7 @@ describe("useWebSocket", () => {
       wsInstances[0].simulateOpen();
     });
 
-    expect(wsInstances.length).toBeGreaterThanOrEqual(1);
+    expect(wsInstances).toHaveLength(1);
   });
 
   it("calls onEvent when message received", async () => {
