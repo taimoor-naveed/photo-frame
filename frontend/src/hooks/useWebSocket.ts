@@ -21,6 +21,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const wsRef = useRef<WebSocket | null>(null);
   const onEventRef = useRef(options.onEvent);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Prevents reconnect after intentional close on unmount
+  const isShuttingDown = useRef(false);
 
   // Keep callback ref fresh without re-triggering effect
   onEventRef.current = options.onEvent;
@@ -47,8 +49,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     ws.onclose = () => {
       setConnected(false);
       wsRef.current = null;
-      // Auto-reconnect after 2 seconds
-      reconnectTimer.current = setTimeout(connect, 2000);
+      if (!isShuttingDown.current) {
+        clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = setTimeout(connect, 2000);
+      }
     };
 
     ws.onerror = () => {
@@ -59,8 +63,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   }, []);
 
   useEffect(() => {
+    isShuttingDown.current = false;
     connect();
     return () => {
+      isShuttingDown.current = true;
       clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
       wsRef.current = null;
