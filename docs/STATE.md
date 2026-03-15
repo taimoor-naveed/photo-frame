@@ -14,9 +14,9 @@ All features merged to `main` and deployed. Slideshow running on Pi kiosk, backe
 | Suite | Tests | Status |
 |-------|-------|--------|
 | Backend (pytest) | 61 | All passing |
-| Frontend (vitest) | 173 | All passing |
+| Frontend (vitest) | 178 | All passing |
 | E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~434** | **Green** |
+| **Total** | **~439** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
@@ -73,6 +73,13 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 ---
 
 ## Recent Changes
+
+### WebSocket Reconnect-After-Unmount Fix (2026-03-15)
+
+Fixed `useWebSocket` hook opening zombie WebSocket connections when a component unmounts but the JS context stays alive (e.g., navigating from slideshow to gallery within the SPA). The `onclose` handler was unconditionally scheduling a reconnect — now an `isShuttingDown` ref distinguishes intentional close (unmount) from unexpected disconnect (network drop). Also fixed the test mock to match real browser behavior (`close()` triggers `onclose`) and added `clearTimeout` before scheduling reconnects to prevent timer stacking.
+
+- **useWebSocket.ts**: Added `isShuttingDown` ref, guarded reconnect in `onclose`, reset in effect, set in cleanup
+- **Tests**: Fixed MockWS fidelity, 5 new tests (no reconnect after unmount, delayed close, unexpected disconnect regression, StrictMode remount, rapid disconnect timer stacking)
 
 ### Infinite Scroll Pagination (2026-03-12)
 
@@ -278,4 +285,3 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 - **No offline mode** — requires network connection to backend
 - [ ] **Upload error messages show raw JSON** — `UploadPage.tsx` displays `xhr.responseText` directly, so users see `{"detail":"..."}` instead of the parsed human-readable message. Should parse the JSON and extract the `detail` field.
 - [ ] **Concurrent duplicate-upload race condition** — Deduplication uses hash→query→insert, which is not safe under concurrent uploads of the same file. Can produce `IntegrityError` instead of graceful dedup. **Fix:** Catch `IntegrityError` on `content_hash` insert and re-query by hash to return the existing row. Ensure the losing race's files are cleaned up from disk. Add explicit concurrent upload tests. **Files:** `backend/app/routers/media.py`, `backend/app/models.py`, backend integration tests.
-- [ ] **`useWebSocket()` reconnect-after-unmount bug** — The WebSocket hook closes the socket on cleanup, but the `onclose` handler still schedules a reconnect via `setTimeout`. This creates zombie reconnect attempts after the component unmounts, leaking timers and sockets. Gets worse as more components use the hook. **Fix:** Track intentional shutdown in a ref (e.g. `isShuttingDown`). In `onclose`, skip reconnect scheduling when the ref is true. Add a unit test: "no reconnect after unmount". **Files:** `frontend/src/hooks/useWebSocket.ts`, `frontend/src/__tests__/useWebSocket.test.ts`.
