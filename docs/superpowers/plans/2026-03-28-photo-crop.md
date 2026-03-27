@@ -48,7 +48,17 @@ class CropRequest(BaseModel):
     crop_x: float = Field(ge=0, le=1)
     crop_y: float = Field(ge=0, le=1)
     crop_scale: float = Field(ge=1)
+
+    @model_validator(mode="after")
+    def reject_explicit_nulls(self):
+        """Reject explicit null values — None is only valid as 'field not sent'."""
+        for field_name in self.model_fields_set:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
 ```
+
+**Note:** This follows the same pattern as `SettingsUpdate` — lesson from QA Round 2 where `Optional` fields accepted explicit `null` and caused 500s.
 
 - [ ] **Step 4: Write schema validation tests**
 
@@ -90,6 +100,19 @@ class TestCropRequest:
     def test_crop_scale_at_minimum(self):
         req = CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=1.0)
         assert req.crop_scale == 1.0
+
+    def test_explicit_null_crop_x_rejected(self):
+        """Lesson from QA Round 2: explicit null must be rejected, not silently accepted."""
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=None, crop_y=0.5, crop_scale=1.0)
+
+    def test_explicit_null_crop_y_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=None, crop_scale=1.0)
+
+    def test_explicit_null_crop_scale_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=None)
 ```
 
 - [ ] **Step 5: Run schema tests**
@@ -272,6 +295,90 @@ class TestRemoveCrop:
         assert data["crop_x"] is None
         assert data["crop_y"] is None
         assert data["crop_scale"] is None
+
+
+class TestCropExplicitNulls:
+    """Lesson from QA Round 2: explicit null in JSON must return 422, not 500."""
+
+    def test_explicit_null_crop_x(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": None, "crop_y": 0.5, "crop_scale": 1.0},
+        )
+        assert resp.status_code == 422
+
+    def test_explicit_null_crop_y(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": 0.5, "crop_y": None, "crop_scale": 1.0},
+        )
+        assert resp.status_code == 422
+
+    def test_explicit_null_crop_scale(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": 0.5, "crop_y": 0.5, "crop_scale": None},
+        )
+        assert resp.status_code == 422
+
+
+class TestCropIntegerOverflow:
+    """Lesson from QA Round 2: huge ints for IDs must not cause 500."""
+
+    def test_set_crop_huge_media_id(self, client):
+        huge_id = 2**63
+        resp = client.put(
+            f"/api/media/{huge_id}/crop",
+            json={"crop_x": 0.5, "crop_y": 0.5, "crop_scale": 1.0},
+        )
+        assert resp.status_code in (404, 422)
+
+    def test_remove_crop_huge_media_id(self, client):
+        huge_id = 2**63
+        resp = client.delete(f"/api/media/{huge_id}/crop")
+        assert resp.status_code in (404, 422)
+
+
+class TestCropWebSocketBroadcast:
+    """Cross-boundary: verify WS broadcast payload has correct field names."""
+
+    def test_set_crop_broadcasts_media_updated(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        # Connect WebSocket before setting crop
+        with client.websocket_connect("/ws") as ws:
+            client.put(
+                f"/api/media/{media['id']}/crop",
+                json={"crop_x": 0.3, "crop_y": 0.2, "crop_scale": 1.5},
+            )
+            msg = ws.receive_json()
+            assert msg["type"] == "media_updated"
+            payload = msg["payload"]
+            # Verify payload has crop fields with correct names and values
+            assert payload["crop_x"] == pytest.approx(0.3)
+            assert payload["crop_y"] == pytest.approx(0.2)
+            assert payload["crop_scale"] == pytest.approx(1.5)
+            # Verify payload has all standard MediaOut fields
+            assert payload["id"] == media["id"]
+            assert payload["filename"] == media["filename"]
+            assert payload["media_type"] == "photo"
+
+    def test_remove_crop_broadcasts_media_updated(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": 0.3, "crop_y": 0.2, "crop_scale": 1.5},
+        )
+        with client.websocket_connect("/ws") as ws:
+            client.delete(f"/api/media/{media['id']}/crop")
+            msg = ws.receive_json()
+            assert msg["type"] == "media_updated"
+            payload = msg["payload"]
+            assert payload["crop_x"] is None
+            assert payload["crop_y"] is None
+            assert payload["crop_scale"] is None
 
 
 class TestUploadedMediaHasNoCrop:
@@ -758,6 +865,37 @@ describe("CropEditor", () => {
     expect(cropData.crop_y).toBeCloseTo(0.2, 1);
     expect(cropData.crop_scale).toBeCloseTo(1.8, 1);
   });
+
+  it("updates scale when zoom slider is changed", () => {
+    const onSave = vi.fn();
+    render(<CropEditor {...defaultProps} onSave={onSave} />);
+    const slider = screen.getByRole("slider");
+    fireEvent.change(slider, { target: { value: "2.5" } });
+    // Save and verify the new scale
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    const cropData = onSave.mock.calls[0][0];
+    expect(cropData.crop_scale).toBeCloseTo(2.5, 1);
+  });
+
+  it("clamps scale to minimum when slider is set below min", () => {
+    const onSave = vi.fn();
+    // Portrait image: min scale > 1.0 because image is taller than wide
+    render(
+      <CropEditor
+        {...defaultProps}
+        imageWidth={600}
+        imageHeight={1200}
+        onSave={onSave}
+      />,
+    );
+    const slider = screen.getByRole("slider");
+    // Try to set scale below minimum
+    fireEvent.change(slider, { target: { value: "1.0" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    const cropData = onSave.mock.calls[0][0];
+    // For 600x1200 portrait with 1024:600 display aspect, min scale > 1.0
+    expect(cropData.crop_scale).toBeGreaterThanOrEqual(1.0);
+  });
 });
 ```
 
@@ -784,6 +922,7 @@ interface CropEditorProps {
   imageWidth: number;
   imageHeight: number;
   initialCrop: CropData | null;
+  saving?: boolean;
   onSave: (crop: CropData) => void;
   onCancel: () => void;
 }
@@ -795,6 +934,7 @@ export default function CropEditor({
   imageWidth,
   imageHeight,
   initialCrop,
+  saving = false,
   onSave,
   onCancel,
 }: CropEditorProps) {
@@ -953,9 +1093,10 @@ export default function CropEditor({
           </button>
           <button
             onClick={handleSave}
-            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+            disabled={saving}
+            className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save
+            {saving ? "Saving..." : "Save"}
           </button>
         </div>
       </div>
@@ -1045,6 +1186,96 @@ describe("Crop controls", () => {
     );
     expect(screen.queryByRole("button", { name: /add crop/i })).not.toBeInTheDocument();
   });
+
+  it("shows error banner when save crop API fails", async () => {
+    // Mock fetch to return 500 for the crop PUT endpoint
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/crop") && opts?.method === "PUT") {
+        return Promise.resolve(new Response("Internal Server Error", { status: 500 }));
+      }
+      return originalFetch(url, opts);
+    }) as typeof fetch;
+
+    render(
+      <MediaDetailModal media={mockPhoto} onClose={() => {}} onDelete={() => {}} />,
+    );
+    // Open editor and save
+    fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/failed to save crop/i)).toBeInTheDocument();
+    });
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("shows error banner when remove crop API fails", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/crop") && opts?.method === "DELETE") {
+        return Promise.resolve(new Response("Internal Server Error", { status: 500 }));
+      }
+      return originalFetch(url, opts);
+    }) as typeof fetch;
+
+    const croppedPhoto = { ...mockPhoto, crop_x: 0.3, crop_y: 0.2, crop_scale: 1.5 };
+    render(
+      <MediaDetailModal media={croppedPhoto} onClose={() => {}} onDelete={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /remove crop/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/failed to remove crop/i)).toBeInTheDocument();
+    });
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("disables save button while crop is saving", async () => {
+    // Mock fetch to hang (never resolve) for the crop endpoint
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/crop") && opts?.method === "PUT") {
+        return new Promise(() => {}); // never resolves
+      }
+      return originalFetch(url, opts);
+    }) as typeof fetch;
+
+    render(
+      <MediaDetailModal media={mockPhoto} onClose={() => {}} onDelete={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    // Save button should show "Saving..." and be disabled
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /saving/i })).toBeDisabled();
+    });
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("does not close editor when save fails (no optimistic UI)", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/crop") && opts?.method === "PUT") {
+        return Promise.resolve(new Response("Internal Server Error", { status: 500 }));
+      }
+      return originalFetch(url, opts);
+    }) as typeof fetch;
+
+    render(
+      <MediaDetailModal media={mockPhoto} onClose={() => {}} onDelete={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => {
+      expect(screen.getByText(/failed to save crop/i)).toBeInTheDocument();
+    });
+    // Editor should still be open — Cancel button visible
+    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+
+    globalThis.fetch = originalFetch;
+  });
 });
 ```
 
@@ -1120,6 +1351,7 @@ const handleRemoveCrop = async () => {
           ? { crop_x: media.crop_x!, crop_y: media.crop_y!, crop_scale: media.crop_scale }
           : null
       }
+      saving={cropSaving}
       onSave={handleSaveCrop}
       onCancel={() => setCropEditing(false)}
     />
