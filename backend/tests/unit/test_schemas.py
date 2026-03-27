@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 
-from app.schemas import MediaOut, SettingsOut, SettingsUpdate
+import pytest
+from pydantic import ValidationError
+
+from app.schemas import CropRequest, MediaOut, SettingsOut, SettingsUpdate
 
 
 def test_media_out_serialization():
@@ -59,3 +62,48 @@ def test_settings_update_empty():
     update = SettingsUpdate()
     d = update.model_dump(exclude_unset=True)
     assert d == {}
+
+
+class TestCropRequest:
+    def test_valid_crop(self):
+        req = CropRequest(crop_x=0.5, crop_y=0.3, crop_scale=1.5)
+        assert req.crop_x == 0.5
+        assert req.crop_y == 0.3
+        assert req.crop_scale == 1.5
+
+    def test_boundary_values(self):
+        CropRequest(crop_x=0.0, crop_y=0.0, crop_scale=1.0)
+        CropRequest(crop_x=1.0, crop_y=1.0, crop_scale=1.0)
+
+    def test_crop_x_out_of_range(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=-0.1, crop_y=0.5, crop_scale=1.0)
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=1.1, crop_y=0.5, crop_scale=1.0)
+
+    def test_crop_y_out_of_range(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=-0.1, crop_scale=1.0)
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=1.1, crop_scale=1.0)
+
+    def test_crop_scale_below_minimum(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=0.9)
+
+    def test_crop_scale_at_minimum(self):
+        req = CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=1.0)
+        assert req.crop_scale == 1.0
+
+    def test_explicit_null_crop_x_rejected(self):
+        """Lesson from QA Round 2: explicit null must be rejected, not silently accepted."""
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=None, crop_y=0.5, crop_scale=1.0)
+
+    def test_explicit_null_crop_y_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=None, crop_scale=1.0)
+
+    def test_explicit_null_crop_scale_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=None)

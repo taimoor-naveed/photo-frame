@@ -24,6 +24,9 @@ class Media(Base):
         String, nullable=False, default="ready"
     )  # "processing" | "ready" | "error"
     content_hash: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
+    crop_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crop_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crop_scale: Mapped[float | None] = mapped_column(Float, nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )
