@@ -5,13 +5,15 @@ import threading
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Path as FastAPIPath, UploadFile
 from sqlalchemy.orm import Session
 
 from app import config
 from app.database import SessionLocal, get_db
 from app.models import Media
-from app.schemas import BulkDeleteRequest, BulkDeleteResponse, MediaListOut, MediaOut, SlideshowJumpRequest
+from app.schemas import BulkDeleteRequest, BulkDeleteResponse, CropRequest, MediaListOut, MediaOut, SlideshowJumpRequest
 from app.services.image import process_image
 from app.services.motion_photo import extract_motion_video
 from app.services.video import needs_transcode, save_video_original, scale_video_for_display, transcode_to_h264
@@ -387,6 +389,49 @@ async def slideshow_jump(body: SlideshowJumpRequest, db: Session = Depends(get_d
         manager.broadcast({"type": "slideshow_jump", "payload": {"id": body.media_id}})
     )
     return {"ok": True}
+
+
+@router.put("/{media_id}/crop", response_model=MediaOut)
+async def set_crop(
+    media_id: Annotated[int, FastAPIPath(ge=1, le=2**63 - 1)],
+    body: CropRequest,
+    db: Session = Depends(get_db),
+):
+    media = db.query(Media).filter(Media.id == media_id).first()
+    if not media:
+        raise HTTPException(404, "Media not found")
+    if media.media_type != "photo":
+        raise HTTPException(400, "Crop is only supported for photos")
+
+    media.crop_x = body.crop_x
+    media.crop_y = body.crop_y
+    media.crop_scale = body.crop_scale
+    db.commit()
+    db.refresh(media)
+
+    await manager.broadcast({"type": "media_updated", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
+
+    return media
+
+
+@router.delete("/{media_id}/crop", response_model=MediaOut)
+async def remove_crop(
+    media_id: Annotated[int, FastAPIPath(ge=1, le=2**63 - 1)],
+    db: Session = Depends(get_db),
+):
+    media = db.query(Media).filter(Media.id == media_id).first()
+    if not media:
+        raise HTTPException(404, "Media not found")
+
+    media.crop_x = None
+    media.crop_y = None
+    media.crop_scale = None
+    db.commit()
+    db.refresh(media)
+
+    await manager.broadcast({"type": "media_updated", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
+
+    return media
 
 
 @router.get("/{media_id}", response_model=MediaOut)
