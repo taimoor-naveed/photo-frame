@@ -1089,4 +1089,47 @@ describe("SlideshowPage", () => {
     });
     expect(getCurrentMediaId()).toBe(secondId);
   });
+
+  it("applies crop CSS transform for cropped photo", async () => {
+    const croppedPhoto = {
+      ...makePhoto(1),
+      crop_x: 0.3,
+      crop_y: 0.2,
+      crop_scale: 1.5,
+    };
+    mockFetch([croppedPhoto]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const fg = document.querySelector("[data-media-id='1']") as HTMLImageElement;
+    expect(fg).toBeTruthy();
+    expect(fg.className).toContain("object-cover");
+    expect(fg.className).not.toContain("object-contain");
+    expect(fg.style.transform).toBe("scale(1.5)");
+    expect(fg.style.objectPosition).toBe("30% 20%");
+    expect(fg.style.transformOrigin).toBe("30% 20%");
+  });
+
+  it("uses object-contain with no transform for uncropped photo", async () => {
+    mockFetch([makePhoto(1)]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const fg = document.querySelector("[data-media-id='1']") as HTMLImageElement;
+    expect(fg).toBeTruthy();
+    expect(fg.className).toContain("object-contain");
+    expect(fg.className).not.toContain("object-cover");
+    expect(fg.style.transform).toBe("");
+    expect(fg.style.objectPosition).toBe("");
+  });
 });

@@ -517,13 +517,20 @@ const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlidePr
     );
   }
 
+  const hasCrop = media.crop_scale != null;
+
   return (
     <>
       <img src={src} className={CSS_BLUR_CLASS} alt="" aria-hidden="true" />
       <img
         src={src}
         data-media-id={media.id}
-        className="absolute inset-0 w-full h-full object-contain"
+        className={`absolute inset-0 w-full h-full ${hasCrop ? "object-cover" : "object-contain"}`}
+        style={hasCrop ? {
+          objectPosition: `${(media.crop_x ?? 0.5) * 100}% ${(media.crop_y ?? 0.5) * 100}%`,
+          transform: `scale(${media.crop_scale})`,
+          transformOrigin: `${(media.crop_x ?? 0.5) * 100}% ${(media.crop_y ?? 0.5) * 100}%`,
+        } : undefined}
         alt={media.original_name}
       />
     </>
