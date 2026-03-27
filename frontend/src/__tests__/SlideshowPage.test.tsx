@@ -25,6 +25,9 @@ function makePhoto(id: number, name?: string): Media {
     processing_status: "ready" as const,
     content_hash: `hash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
+    crop_x: null,
+    crop_y: null,
+    crop_scale: null,
   };
 }
 
@@ -48,6 +51,9 @@ function makeVideo(
     processing_status: status,
     content_hash: `vhash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
+    crop_x: null,
+    crop_y: null,
+    crop_scale: null,
   };
 }
 

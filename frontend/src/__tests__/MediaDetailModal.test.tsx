@@ -18,6 +18,9 @@ const mockPhoto: Media = {
   processing_status: "ready",
   content_hash: "abc123",
   uploaded_at: "2026-01-15T14:30:00",
+  crop_x: null,
+  crop_y: null,
+  crop_scale: null,
 };
 
 const mockVideo: Media = {
