@@ -29,7 +29,7 @@ class MediaOut(BaseModel):
 class CropRequest(BaseModel):
     crop_x: float = Field(ge=0, le=1)
     crop_y: float = Field(ge=0, le=1)
-    crop_scale: float = Field(ge=1)
+    crop_scale: float = Field(ge=1, le=10)
 
     @model_validator(mode="after")
     def reject_explicit_nulls(self):

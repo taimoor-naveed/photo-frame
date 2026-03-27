@@ -107,3 +107,17 @@ class TestCropRequest:
     def test_explicit_null_crop_scale_rejected(self):
         with pytest.raises(ValidationError):
             CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=None)
+
+    def test_missing_all_fields_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest()
+
+    def test_missing_partial_fields_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5)
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=0.5)
+
+    def test_crop_scale_above_maximum_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=10.1)
