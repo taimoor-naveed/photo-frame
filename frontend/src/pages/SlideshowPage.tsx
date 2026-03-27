@@ -287,6 +287,20 @@ export default function SlideshowPage() {
           setSlideForward(true);
           goToSlideRef.current(idx);
         }
+      } else if (event.type === "media_updated") {
+        const updated = event.payload as unknown as Media;
+        setMediaList((prev) =>
+          prev.map((m) => (m.id === updated.id ? updated : m)),
+        );
+        setSlide((prev) => {
+          if (!prev.playlist.some((m) => m.id === updated.id)) return prev;
+          return {
+            ...prev,
+            playlist: prev.playlist.map((m) =>
+              m.id === updated.id ? updated : m,
+            ),
+          };
+        });
       }
     },
     [resetHideTimer],

@@ -451,6 +451,71 @@ describe("usePhotos", () => {
     expect(result.current.total).toBe(1);
   });
 
+  it("WS media_updated updates photo in-place without refetching", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockList,
+    } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.photos[0].crop_x).toBeNull();
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    fetchSpy.mockClear();
+
+    const updatedMedia: Media = {
+      ...makeMedia(1),
+      crop_x: 0.1,
+      crop_y: 0.2,
+      crop_scale: 1.5,
+    };
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_updated",
+        payload: updatedMedia,
+      });
+    });
+
+    // Photo should be updated in-place
+    expect(result.current.photos[0].crop_x).toBe(0.1);
+    expect(result.current.photos[0].crop_y).toBe(0.2);
+    expect(result.current.photos[0].crop_scale).toBe(1.5);
+
+    // No refetch should have occurred
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("WS media_updated for unknown id does not change photos", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockList,
+    } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.photos).toHaveLength(1);
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_updated",
+        payload: { ...makeMedia(999), crop_x: 0.5 },
+      });
+    });
+
+    // Photos array should be unchanged — ID 999 not in list
+    expect(result.current.photos).toHaveLength(1);
+    expect(result.current.photos[0].id).toBe(1);
+    expect(result.current.photos[0].crop_x).toBeNull();
+  });
+
   it("stale fetchPhotos error does not overwrite fresh data", async () => {
     // A failing reset followed by a successful reset:
     // if the failure resolves last, it must not set error state

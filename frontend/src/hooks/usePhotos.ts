@@ -155,6 +155,11 @@ export function usePhotos() {
             p.id === id ? { ...p, processing_status: "error" as const } : p,
           ),
         );
+      } else if (event.type === "media_updated") {
+        const updated = event.payload as unknown as Media;
+        setPhotos((prev) =>
+          prev.map((p) => (p.id === updated.id ? updated : p)),
+        );
       }
     },
     [],
