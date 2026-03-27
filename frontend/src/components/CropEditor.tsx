@@ -194,27 +194,39 @@ export default function CropEditor({
 
   return (
     <div className="flex flex-col items-center gap-4 w-full">
-      {/* Crop viewport */}
-      <div
-        ref={cropAreaRef}
-        className="relative overflow-hidden cursor-grab active:cursor-grabbing border border-white/20 rounded-lg"
-        style={{ aspectRatio: "1024 / 600", width: "100%", maxWidth: "640px" }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-      >
-        {/* Cropped image preview */}
+      {/* Crop area with dimmed background */}
+      <div className="relative w-full max-w-[640px]" style={{ aspectRatio: "1024 / 600" }}>
+        {/* Dimmed full image behind for spatial context */}
         <img
           src={src}
-          alt="Crop preview"
-          className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+          alt=""
+          aria-hidden="true"
           draggable={false}
-          style={{
-            objectPosition: `${cropX * 100}% ${cropY * 100}%`,
-            transform: `scale(${scale})`,
-            transformOrigin: `${cropX * 100}% ${cropY * 100}%`,
-          }}
+          className="absolute inset-0 w-full h-full object-contain brightness-[0.3] select-none pointer-events-none"
+          data-testid="crop-dimmed-bg"
         />
+
+        {/* Crop viewport */}
+        <div
+          ref={cropAreaRef}
+          className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing border-2 border-white/60"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          {/* Cropped image preview */}
+          <img
+            src={src}
+            alt="Crop preview"
+            className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+            draggable={false}
+            style={{
+              objectPosition: `${cropX * 100}% ${cropY * 100}%`,
+              transform: `scale(${scale})`,
+              transformOrigin: `${cropX * 100}% ${cropY * 100}%`,
+            }}
+          />
+        </div>
       </div>
 
       {/* Zoom slider */}

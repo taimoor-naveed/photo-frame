@@ -100,7 +100,9 @@ describe("CropEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     const cropData = onSave.mock.calls[0][0];
     // minScale for 600x1200 = (1024/600) / (600/1200) = ~3.41
-    expect(cropData.crop_scale).toBeGreaterThanOrEqual(1.0);
+    // Must be clamped to at least minScale, not just >= 1.0
+    const expectedMinScale = (1024 / 600) / (600 / 1200);
+    expect(cropData.crop_scale).toBeCloseTo(expectedMinScale, 1);
   });
 
   it("shows 'Saving...' and disables Save button when saving is true", () => {
