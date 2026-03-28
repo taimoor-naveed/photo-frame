@@ -522,17 +522,35 @@ const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlidePr
   return (
     <>
       <img src={src} className={CSS_BLUR_CLASS} alt="" aria-hidden="true" />
-      <img
-        src={src}
-        data-media-id={media.id}
-        className={`absolute inset-0 w-full h-full ${hasCrop ? "object-cover" : "object-contain"}`}
-        style={hasCrop ? {
-          objectPosition: `${(media.crop_x ?? 0.5) * 100}% ${(media.crop_y ?? 0.5) * 100}%`,
-          transform: `scale(${media.crop_scale})`,
-          transformOrigin: `${(media.crop_x ?? 0.5) * 100}% ${(media.crop_y ?? 0.5) * 100}%`,
-        } : undefined}
-        alt={media.original_name}
-      />
+      {hasCrop ? (
+        /* Cropped photo: render inside a 1024:600 box so it matches RPi display.
+           On RPi this fills the screen exactly. On other aspect ratios, blur shows around edges. */
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="relative overflow-hidden max-w-full max-h-full"
+            style={{ aspectRatio: "1024 / 600", width: "calc(min(100%, 100vh * 1024 / 600))" }}
+          >
+            <img
+              src={src}
+              data-media-id={media.id}
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{
+                objectPosition: `${(media.crop_x ?? 0.5) * 100}% ${(media.crop_y ?? 0.5) * 100}%`,
+                transform: `scale(${media.crop_scale})`,
+                transformOrigin: `${(media.crop_x ?? 0.5) * 100}% ${(media.crop_y ?? 0.5) * 100}%`,
+              }}
+              alt={media.original_name}
+            />
+          </div>
+        </div>
+      ) : (
+        <img
+          src={src}
+          data-media-id={media.id}
+          className="absolute inset-0 w-full h-full object-contain"
+          alt={media.original_name}
+        />
+      )}
     </>
   );
 });
