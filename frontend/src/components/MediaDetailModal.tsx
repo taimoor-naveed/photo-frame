@@ -233,7 +233,7 @@ export default function MediaDetailModal({
 
         {/* Modal card */}
         <div
-          className="relative z-10 w-full max-w-4xl max-h-[90vh] rounded-2xl bg-surface shadow-gallery-xl border border-white/[0.06] overflow-hidden flex flex-col"
+          className={`relative z-10 w-full max-w-4xl max-h-[90vh] rounded-2xl bg-surface shadow-gallery-xl border border-white/[0.06] overflow-hidden flex flex-col ${cropEditing ? "h-[90vh]" : ""}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header bar */}
@@ -399,7 +399,7 @@ export default function MediaDetailModal({
 
           {/* Media area */}
           {cropEditing ? (
-            <div className="flex-1 min-h-0 flex items-center justify-center p-4 bg-black">
+            <div className="flex-1 min-h-0 bg-black flex flex-col">
               <CropEditor
                 src={originalUrl(media)}
                 imageWidth={media.width}

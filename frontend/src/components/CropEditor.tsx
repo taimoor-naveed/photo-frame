@@ -21,10 +21,8 @@ interface CropEditorProps {
 function computeMinScale(imageWidth: number, imageHeight: number): number {
   const imageAspect = imageWidth / imageHeight;
   if (imageAspect > DISPLAY_ASPECT) {
-    // Wide image: height is the limiting dimension, fits at scale 1
     return 1.0;
   }
-  // Tall image: need to zoom so width fills the crop rect
   return DISPLAY_ASPECT / imageAspect;
 }
 
@@ -35,47 +33,36 @@ function clampPosition(
   imageWidth: number,
   imageHeight: number,
 ): { cropX: number; cropY: number } {
-  // When using object-fit: cover with object-position and scale:
-  // The visible fraction of the image in each axis depends on the relationship
-  // between image aspect and display aspect, plus the scale.
-  //
-  // With object-fit: cover at scale=1:
-  // - If image is wider than display: full height visible, partial width
-  //   visible width fraction = displayAspect / imageAspect
-  // - If image is taller than display: full width visible, partial height
-  //   visible height fraction = imageAspect / displayAspect
-  //
-  // At higher scales, the visible fraction shrinks by 1/scale.
-
   const imageAspect = imageWidth / imageHeight;
 
   let visibleFractionX: number;
   let visibleFractionY: number;
 
   if (imageAspect > DISPLAY_ASPECT) {
-    // Wide image: at scale 1, height fills, width is cropped
     visibleFractionX = DISPLAY_ASPECT / imageAspect / scale;
     visibleFractionY = 1.0 / scale;
   } else {
-    // Tall image: at scale 1, width fills, height is cropped
     visibleFractionX = 1.0 / scale;
     visibleFractionY = imageAspect / DISPLAY_ASPECT / scale;
   }
 
-  // The crop center must be far enough from edges that the visible rectangle
-  // doesn't extend outside the image (0..1 range)
   const halfX = visibleFractionX / 2;
   const halfY = visibleFractionY / 2;
 
-  const minX = halfX;
-  const maxX = 1 - halfX;
-  const minY = halfY;
-  const maxY = 1 - halfY;
-
   return {
-    cropX: Math.max(minX, Math.min(maxX, cropX)),
-    cropY: Math.max(minY, Math.min(maxY, cropY)),
+    cropX: Math.max(halfX, Math.min(1 - halfX, cropX)),
+    cropY: Math.max(halfY, Math.min(1 - halfY, cropY)),
   };
+}
+
+/** Get the midpoint between two pointer positions. */
+function midpoint(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/** Get the distance between two pointer positions. */
+function distance(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
 export default function CropEditor({
@@ -91,9 +78,8 @@ export default function CropEditor({
     () => computeMinScale(imageWidth, imageHeight),
     [imageWidth, imageHeight],
   );
-  const maxScale = Math.max(minScale * 3, 4);
+  const maxScale = Math.max(minScale * 3, 10);
 
-  // Initialize state from initialCrop or defaults
   const initScale = initialCrop
     ? Math.max(initialCrop.crop_scale, minScale)
     : minScale;
@@ -106,86 +92,134 @@ export default function CropEditor({
   const [cropY, setCropY] = useState(initPos.cropY);
   const [scale, setScale] = useState(initScale);
 
-  // Drag state
-  const dragging = useRef(false);
-  const lastPointer = useRef({ x: 0, y: 0 });
+  // Refs for fresh values inside pointer handlers (avoid stale closures)
+  const stateRef = useRef({ cropX, cropY, scale });
+  stateRef.current = { cropX, cropY, scale };
+
   const cropAreaRef = useRef<HTMLDivElement>(null);
 
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    dragging.current = true;
-    lastPointer.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
+  // ─── Multi-pointer tracking ───────────────────────────────────
+  // Map of pointerId → { x, y } for all active pointers on the crop area.
+  // 1 pointer = pan. 2 pointers = pinch-to-zoom + pan.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  // Snapshot of scale when pinch started, so we compute relative zoom.
+  const pinchStartScale = useRef(1);
+  const pinchStartDist = useRef(0);
+  // Last known midpoint for 2-finger pan during pinch.
+  const lastMid = useRef({ x: 0, y: 0 });
 
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!dragging.current || !cropAreaRef.current) return;
+  const applyDelta = useCallback(
+    (dx: number, dy: number, currentScale: number) => {
+      const el = cropAreaRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
 
-      const dx = e.clientX - lastPointer.current.x;
-      const dy = e.clientY - lastPointer.current.y;
-      lastPointer.current = { x: e.clientX, y: e.clientY };
+      // Dragging right = image moves right = crop center moves left.
+      const dCropX = -(dx / rect.width) / currentScale;
+      const dCropY = -(dy / rect.height) / currentScale;
 
-      // The crop area dimensions on screen
-      const rect = cropAreaRef.current.getBoundingClientRect();
-      const cropW = rect.width;
-      const cropH = rect.height;
-
-      // Convert pixel drag to fraction of image.
-      // The crop area shows a portion of the image. Moving pointer right
-      // should shift the crop region right on the image, meaning cropX increases.
-      // But visually we want the image to move opposite to the drag (like panning a map),
-      // so dragging right = image moves left = crop region moves right = cropX increases.
-      // Wait — actually dragging right should feel like grabbing the image and moving it,
-      // so the image moves right, meaning we see a region further LEFT on the image.
-      // So: drag right → cropX decreases.
-
-      const imageAspect = imageWidth / imageHeight;
-
-      // How many image-fraction units does one pixel of drag represent?
-      // The crop area shows visibleFractionX of the image width.
-      // So cropW pixels = visibleFractionX of the image.
-      let visibleFractionX: number;
-      let visibleFractionY: number;
-      if (imageAspect > DISPLAY_ASPECT) {
-        visibleFractionX = DISPLAY_ASPECT / imageAspect / scale;
-        visibleFractionY = 1.0 / scale;
-      } else {
-        visibleFractionX = 1.0 / scale;
-        visibleFractionY = imageAspect / DISPLAY_ASPECT / scale;
-      }
-
-      const dCropX = -(dx / cropW) * visibleFractionX;
-      const dCropY = -(dy / cropH) * visibleFractionY;
-
-      setCropX((prev) => {
-        const next = prev + dCropX;
-        return clampPosition(next, 0.5, scale, imageWidth, imageHeight).cropX;
-      });
-      setCropY((prev) => {
-        const next = prev + dCropY;
-        return clampPosition(0.5, next, scale, imageWidth, imageHeight).cropY;
-      });
+      const s = stateRef.current;
+      const clamped = clampPosition(s.cropX + dCropX, s.cropY + dCropY, currentScale, imageWidth, imageHeight);
+      setCropX(clamped.cropX);
+      setCropY(clamped.cropY);
+      stateRef.current.cropX = clamped.cropX;
+      stateRef.current.cropY = clamped.cropY;
     },
-    [scale, imageWidth, imageHeight],
+    [imageWidth, imageHeight],
   );
 
-  const handlePointerUp = useCallback(() => {
-    dragging.current = false;
+  const applyScale = useCallback(
+    (newScale: number) => {
+      const clamped = Math.max(minScale, Math.min(maxScale, newScale));
+      setScale(clamped);
+      stateRef.current.scale = clamped;
+      const s = stateRef.current;
+      const pos = clampPosition(s.cropX, s.cropY, clamped, imageWidth, imageHeight);
+      setCropX(pos.cropX);
+      setCropY(pos.cropY);
+      stateRef.current.cropX = pos.cropX;
+      stateRef.current.cropY = pos.cropY;
+    },
+    [minScale, maxScale, imageWidth, imageHeight],
+  );
+
+  // ─── Pointer event handlers ───────────────────────────────────
+  // `touch-action: none` on the element tells the browser we handle everything.
+  // All input (mouse, touch, pen) comes through as pointer events.
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    const el = cropAreaRef.current;
+    if (!el) return;
+    el.setPointerCapture(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // If this is the 2nd pointer, snapshot pinch state
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      pinchStartDist.current = distance(a, b);
+      pinchStartScale.current = stateRef.current.scale;
+      lastMid.current = midpoint(a, b);
+    }
   }, []);
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!pointers.current.has(e.pointerId)) return;
+
+      const prev = pointers.current.get(e.pointerId)!;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.current.size === 1) {
+        // Single pointer → pan
+        const dx = e.clientX - prev.x;
+        const dy = e.clientY - prev.y;
+        applyDelta(dx, dy, stateRef.current.scale);
+      } else if (pointers.current.size === 2) {
+        // Two pointers → pinch-to-zoom + pan
+        const [a, b] = [...pointers.current.values()];
+        const dist = distance(a, b);
+        const mid = midpoint(a, b);
+
+        // Zoom
+        if (pinchStartDist.current > 0) {
+          applyScale(pinchStartScale.current * (dist / pinchStartDist.current));
+        }
+
+        // Pan (track midpoint movement)
+        const dx = mid.x - lastMid.current.x;
+        const dy = mid.y - lastMid.current.y;
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+          applyDelta(dx, dy, stateRef.current.scale);
+        }
+        lastMid.current = mid;
+      }
+    },
+    [applyDelta, applyScale],
+  );
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    pinchStartDist.current = 0;
+
+    // If we still have 2 pointers after removing one (shouldn't happen normally),
+    // reset pinch state. If we go from 2→1, the remaining pointer continues as pan.
+  }, []);
+
+  // ─── Mouse wheel zoom ──────────────────────────────────────────
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.stopPropagation();
+      const delta = -e.deltaY * 0.005;
+      applyScale(stateRef.current.scale * (1 + delta));
+    },
+    [applyScale],
+  );
 
   const handleSliderChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newScale = Math.max(parseFloat(e.target.value), minScale);
-      setScale(newScale);
-      // Re-clamp position for new scale
-      setCropX((prev) =>
-        clampPosition(prev, 0.5, newScale, imageWidth, imageHeight).cropX,
-      );
-      setCropY((prev) =>
-        clampPosition(0.5, prev, newScale, imageWidth, imageHeight).cropY,
-      );
+      applyScale(parseFloat(e.target.value));
     },
-    [minScale, imageWidth, imageHeight],
+    [applyScale],
   );
 
   const handleSave = useCallback(() => {
@@ -193,9 +227,9 @@ export default function CropEditor({
   }, [onSave, cropX, cropY, scale]);
 
   return (
-    <div className="flex flex-col items-center gap-4 w-full">
-      {/* Crop area with dimmed background */}
-      <div className="relative w-full max-w-[640px]" style={{ aspectRatio: "1024 / 600" }}>
+    <div className="flex flex-col h-full w-full">
+      {/* Crop area — fills available space */}
+      <div className="flex-1 min-h-0 relative bg-black">
         {/* Dimmed full image behind for spatial context */}
         <img
           src={src}
@@ -206,32 +240,41 @@ export default function CropEditor({
           data-testid="crop-dimmed-bg"
         />
 
-        {/* Crop viewport */}
-        <div
-          ref={cropAreaRef}
-          className="absolute inset-0 overflow-hidden cursor-grab active:cursor-grabbing border-2 border-white/60"
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-        >
-          {/* Cropped image preview */}
-          <img
-            src={src}
-            alt="Crop preview"
-            className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
-            draggable={false}
+        {/* Centered crop viewport at display aspect ratio */}
+        <div className="absolute inset-0 flex items-center justify-center p-4">
+          <div
+            ref={cropAreaRef}
+            className="relative overflow-hidden cursor-grab active:cursor-grabbing border-2 border-white/60 w-full h-full"
             style={{
-              objectPosition: `${cropX * 100}% ${cropY * 100}%`,
-              transform: `scale(${scale})`,
-              transformOrigin: `${cropX * 100}% ${cropY * 100}%`,
+              touchAction: "none",      /* KEY: tells browser we handle all gestures */
+              maxWidth: "100%",
+              maxHeight: "100%",
+              aspectRatio: "1024 / 600",
             }}
-          />
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onWheel={onWheel}
+          >
+            <img
+              src={src}
+              alt="Crop preview"
+              className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+              draggable={false}
+              style={{
+                objectPosition: `${cropX * 100}% ${cropY * 100}%`,
+                transform: `scale(${scale})`,
+                transformOrigin: `${cropX * 100}% ${cropY * 100}%`,
+              }}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Zoom slider */}
-      <div className="flex items-center gap-3 w-full max-w-[640px] px-2">
-        <span className="text-warm-gray text-sm">Zoom</span>
+      {/* Controls bar */}
+      <div className="flex items-center gap-3 px-4 py-3 border-t border-white/[0.06] bg-surface">
+        <span className="text-warm-gray text-sm shrink-0">−</span>
         <input
           type="range"
           role="slider"
@@ -242,25 +285,25 @@ export default function CropEditor({
           onChange={handleSliderChange}
           className="flex-1 h-2 accent-blue-600"
         />
-      </div>
+        <span className="text-warm-gray text-sm shrink-0">+</span>
 
-      {/* Action buttons */}
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-5 py-2.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-white hover:bg-white/10 backdrop-blur transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="px-5 py-2.5 min-h-[44px] rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {saving ? "Saving..." : "Save Crop"}
-        </button>
+        <div className="flex gap-2 ml-2 shrink-0">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-white hover:bg-white/10 transition-colors text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 min-h-[44px] rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );
