@@ -34,9 +34,11 @@ function formatDuration(seconds: number): string {
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
+const DISPLAY_ASPECT = 1024 / 600;
+
 /**
- * Shows a crop preview: the full image dimmed with the crop region rendered
- * brightly using the same CSS approach as the slideshow (object-cover + scale).
+ * Shows the full image with a bright "hole" where the crop is, dimmed everywhere else.
+ * The image inside and outside the crop rect is the same scale — the rect is just a window.
  */
 function CropPreviewOverlay({
   src,
@@ -45,33 +47,60 @@ function CropPreviewOverlay({
   src: string;
   media: Media;
 }) {
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+
+  const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    setImgSize({ w: img.clientWidth, h: img.clientHeight });
+  }, []);
+
+  // Compute crop rect position on the rendered image
+  const cropX = media.crop_x ?? 0.5;
+  const cropY = media.crop_y ?? 0.5;
+  const cropScale = media.crop_scale ?? 1;
+  const imageAspect = media.width / media.height;
+
+  // Visible fraction of the image in each axis at this crop_scale
+  let visFracX: number, visFracY: number;
+  if (imageAspect > DISPLAY_ASPECT) {
+    visFracX = DISPLAY_ASPECT / imageAspect / cropScale;
+    visFracY = 1.0 / cropScale;
+  } else {
+    visFracX = 1.0 / cropScale;
+    visFracY = imageAspect / DISPLAY_ASPECT / cropScale;
+  }
+
+  // Rect position as fractions of image dimensions
+  const rectLeft = Math.max(0, cropX - visFracX / 2);
+  const rectTop = Math.max(0, cropY - visFracY / 2);
+  const rectW = Math.min(1, visFracX);
+  const rectH = Math.min(1, visFracY);
+
   return (
-    <div className="relative flex items-center justify-center w-full h-full">
-      {/* Dimmed full image */}
+    <div className="relative inline-flex items-center justify-center">
+      {/* Full image (bright) */}
       <img
         src={src}
         alt={media.original_name}
         data-media-id={media.id}
-        className="max-w-full max-h-[70vh] object-contain brightness-[0.3]"
+        className="max-w-full max-h-[70vh] object-contain"
+        onLoad={handleImgLoad}
       />
-      {/* Crop preview — same rendering as slideshow, in a 1024:600 box */}
-      <div
-        data-testid="crop-rect"
-        className="absolute border-2 border-white/60 overflow-hidden"
-        style={{ aspectRatio: "1024 / 600", width: "80%", maxHeight: "60%" }}
-      >
-        <img
-          src={src}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+      {/* Dimmed overlay with a "hole" via box-shadow */}
+      {imgSize && (
+        <div
+          data-testid="crop-rect"
+          className="absolute pointer-events-none"
           style={{
-            objectPosition: `${media.crop_x! * 100}% ${media.crop_y! * 100}%`,
-            transform: `scale(${media.crop_scale})`,
-            transformOrigin: `${media.crop_x! * 100}% ${media.crop_y! * 100}%`,
+            left: `${rectLeft * imgSize.w}px`,
+            top: `${rectTop * imgSize.h}px`,
+            width: `${rectW * imgSize.w}px`,
+            height: `${rectH * imgSize.h}px`,
+            boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.6)",
+            border: "1px solid rgba(255, 255, 255, 0.5)",
           }}
         />
-      </div>
+      )}
     </div>
   );
 }
