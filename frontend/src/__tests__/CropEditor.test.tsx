@@ -50,11 +50,6 @@ describe("CropEditor", () => {
     expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
   });
 
-  it("renders a zoom slider", () => {
-    render(<CropEditor {...defaultProps} />);
-    expect(screen.getByRole("slider")).toBeInTheDocument();
-  });
-
   it("calls onCancel when Cancel is clicked", () => {
     const onCancel = vi.fn();
     render(<CropEditor {...defaultProps} onCancel={onCancel} />);

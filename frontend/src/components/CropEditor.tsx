@@ -101,31 +101,36 @@ export default function CropEditor({
   const [tx, setTx] = useState(initialTransform.tx);
   const [ty, setTy] = useState(initialTransform.ty);
   const [zoom, setZoom] = useState(initialTransform.zoom);
-  const [initialized, setInitialized] = useState(!initialCrop);
+  const [initialized, setInitialized] = useState(false);
 
   // Refs for fresh values in pointer handlers
   const stateRef = useRef({ tx, ty, zoom });
   stateRef.current = { tx, ty, zoom };
 
-  // ─── Initialize position from initialCrop once layout is available ─
+  // ─── Initialize zoom/position once layout is available ─────────────
   const handleImageLoad = useCallback(() => {
-    if (initialized || !initialCrop) return;
+    if (initialized) return;
     const layout = getLayout();
     if (!layout) return;
 
     const { imgW, imgH, cropW, cropH } = layout;
     // minZoom: pixel-based zoom where image just covers the crop rect
     const minZoom = Math.max(cropW / imgW, cropH / imgH);
-    // crop_scale is stored relative to this baseline
-    const z = initialCrop.crop_scale * minZoom;
 
-    const newTx = (0.5 - initialCrop.crop_x) * imgW * z;
-    const newTy = (0.5 - initialCrop.crop_y) * imgH * z;
-
-    setTx(newTx);
-    setTy(newTy);
-    setZoom(z);
-    stateRef.current = { tx: newTx, ty: newTy, zoom: z };
+    if (initialCrop) {
+      // Restore saved crop position
+      const z = initialCrop.crop_scale * minZoom;
+      const newTx = (0.5 - initialCrop.crop_x) * imgW * z;
+      const newTy = (0.5 - initialCrop.crop_y) * imgH * z;
+      setTx(newTx);
+      setTy(newTy);
+      setZoom(z);
+      stateRef.current = { tx: newTx, ty: newTy, zoom: z };
+    } else {
+      // Fresh crop: start at minZoom so image covers crop rect (no jump on first interaction)
+      setZoom(minZoom);
+      stateRef.current = { tx: 0, ty: 0, zoom: minZoom };
+    }
     setInitialized(true);
   }, [initialized, initialCrop, getLayout]);
 
@@ -236,24 +241,6 @@ export default function CropEditor({
     [applyState],
   );
 
-  // ─── Slider ────────────────────────────────────────────────────────
-  const sliderMin = useMemo(() => {
-    const layout = getLayout();
-    if (!layout) {
-      const imgAspect = imageWidth / imageHeight;
-      return imgAspect > DISPLAY_ASPECT ? 1.0 : DISPLAY_ASPECT / imgAspect;
-    }
-    return Math.max(layout.cropW / layout.imgW, layout.cropH / layout.imgH);
-  }, [getLayout, imageWidth, imageHeight]);
-
-  const handleSliderChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const s = stateRef.current;
-      applyState(s.tx, s.ty, parseFloat(e.target.value));
-    },
-    [applyState],
-  );
-
   // ─── Save: convert pixel transform → crop fractions ────────────────
   const handleSave = useCallback(() => {
     const layout = getLayout();
@@ -340,21 +327,8 @@ export default function CropEditor({
       </div>
 
       {/* Controls bar */}
-      <div className="flex items-center gap-3 px-4 py-3 border-t border-white/[0.06] bg-surface">
-        <span className="text-warm-gray text-sm shrink-0">-</span>
-        <input
-          type="range"
-          role="slider"
-          min={sliderMin}
-          max={Math.max(sliderMin * 4, 10)}
-          step={0.01}
-          value={zoom}
-          onChange={handleSliderChange}
-          className="flex-1 h-2 accent-blue-600"
-        />
-        <span className="text-warm-gray text-sm shrink-0">+</span>
-
-        <div className="flex gap-2 ml-2 shrink-0">
+      <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-white/[0.06] bg-surface">
+        <div className="flex gap-2 shrink-0">
           <button
             type="button"
             onClick={onCancel}
