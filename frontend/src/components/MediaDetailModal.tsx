@@ -34,50 +34,9 @@ function formatDuration(seconds: number): string {
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
-const DISPLAY_ASPECT = 1024 / 600;
-
 /**
- * Computes the crop rectangle position (as fractions of rendered image size)
- * for a given crop_x, crop_y, crop_scale on an image of known dimensions.
- *
- * Returns { left, top, width, height } as fractions (0..1) of the image dimensions.
- */
-function computeCropRect(
-  cropX: number,
-  cropY: number,
-  cropScale: number,
-  imageWidth: number,
-  imageHeight: number,
-): { left: number; top: number; width: number; height: number } {
-  const imageAspect = imageWidth / imageHeight;
-
-  // Visible fraction of the image in each axis (same math as CropEditor)
-  let visibleFractionX: number;
-  let visibleFractionY: number;
-
-  if (imageAspect > DISPLAY_ASPECT) {
-    // Wide image: height fills, width is cropped
-    visibleFractionX = DISPLAY_ASPECT / imageAspect / cropScale;
-    visibleFractionY = 1.0 / cropScale;
-  } else {
-    // Tall image: width fills, height is cropped
-    visibleFractionX = 1.0 / cropScale;
-    visibleFractionY = imageAspect / DISPLAY_ASPECT / cropScale;
-  }
-
-  const left = cropX - visibleFractionX / 2;
-  const top = cropY - visibleFractionY / 2;
-
-  return {
-    left: Math.max(0, left),
-    top: Math.max(0, top),
-    width: Math.min(1, visibleFractionX),
-    height: Math.min(1, visibleFractionY),
-  };
-}
-
-/**
- * Renders a dimmed full image with a bright rectangle showing the crop region.
+ * Shows a crop preview: the full image dimmed with the crop region rendered
+ * brightly using the same CSS approach as the slideshow (object-cover + scale).
  */
 function CropPreviewOverlay({
   src,
@@ -86,61 +45,33 @@ function CropPreviewOverlay({
   src: string;
   media: Media;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
-
-  const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    // Rendered size of the object-contain image within the container
-    setImgSize({ w: img.clientWidth, h: img.clientHeight });
-  }, []);
-
-  const rect = media.crop_x != null && media.crop_y != null && media.crop_scale != null
-    ? computeCropRect(media.crop_x, media.crop_y, media.crop_scale, media.width, media.height)
-    : null;
-
   return (
-    <div ref={containerRef} className="relative inline-flex items-center justify-center">
+    <div className="relative flex items-center justify-center w-full h-full">
       {/* Dimmed full image */}
       <img
         src={src}
         alt={media.original_name}
         data-media-id={media.id}
         className="max-w-full max-h-[70vh] object-contain brightness-[0.3]"
-        onLoad={handleImgLoad}
       />
-      {/* Crop rectangle overlay */}
-      {rect && imgSize && (
-        <div
-          data-testid="crop-rect"
-          className="absolute border-2 border-white/70 overflow-hidden"
+      {/* Crop preview — same rendering as slideshow, in a 1024:600 box */}
+      <div
+        data-testid="crop-rect"
+        className="absolute border-2 border-white/60 overflow-hidden"
+        style={{ aspectRatio: "1024 / 600", width: "80%", maxHeight: "60%" }}
+      >
+        <img
+          src={src}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
           style={{
-            left: `${rect.left * imgSize.w}px`,
-            top: `${rect.top * imgSize.h}px`,
-            width: `${rect.width * imgSize.w}px`,
-            height: `${rect.height * imgSize.h}px`,
-            // Position relative to the rendered image, not the container.
-            // Since the image is centered via inline-flex, we need to account
-            // for any centering offset. The container matches the image size
-            // when using inline-flex, so this should be accurate.
+            objectPosition: `${media.crop_x! * 100}% ${media.crop_y! * 100}%`,
+            transform: `scale(${media.crop_scale})`,
+            transformOrigin: `${media.crop_x! * 100}% ${media.crop_y! * 100}%`,
           }}
-        >
-          {/* Bright crop preview inside the rectangle */}
-          <img
-            src={src}
-            alt=""
-            aria-hidden="true"
-            className="absolute select-none pointer-events-none"
-            style={{
-              // Position the full image so the crop region aligns with this box
-              width: `${imgSize.w}px`,
-              height: `${imgSize.h}px`,
-              left: `${-rect.left * imgSize.w}px`,
-              top: `${-rect.top * imgSize.h}px`,
-            }}
-          />
-        </div>
-      )}
+        />
+      </div>
     </div>
   );
 }

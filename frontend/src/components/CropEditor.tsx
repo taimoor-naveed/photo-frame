@@ -113,10 +113,11 @@ export default function CropEditor({
     const layout = getLayout();
     if (!layout) return;
 
-    const { imgW, imgH } = layout;
-    const imgAspect = imageWidth / imageHeight;
-    const minScale = imgAspect > DISPLAY_ASPECT ? 1.0 : DISPLAY_ASPECT / imgAspect;
-    const z = initialCrop.crop_scale / minScale;
+    const { imgW, imgH, cropW, cropH } = layout;
+    // minZoom: pixel-based zoom where image just covers the crop rect
+    const minZoom = Math.max(cropW / imgW, cropH / imgH);
+    // crop_scale is stored relative to this baseline
+    const z = initialCrop.crop_scale * minZoom;
 
     const newTx = (0.5 - initialCrop.crop_x) * imgW * z;
     const newTy = (0.5 - initialCrop.crop_y) * imgH * z;
@@ -126,7 +127,7 @@ export default function CropEditor({
     setZoom(z);
     stateRef.current = { tx: newTx, ty: newTy, zoom: z };
     setInitialized(true);
-  }, [initialized, initialCrop, getLayout, imageWidth, imageHeight]);
+  }, [initialized, initialCrop, getLayout]);
 
   // ─── Clamp: ensure image covers the crop rectangle ─────────────────
   const clamp = useCallback(
@@ -267,20 +268,16 @@ export default function CropEditor({
     const cropCenterX = 0.5 - s.tx / (imgW * s.zoom);
     const cropCenterY = 0.5 - s.ty / (imgH * s.zoom);
 
-    // crop_scale: how much we're zoomed relative to "image just fills crop rect"
+    // crop_scale: zoom relative to "image just covers crop rect" baseline
     const minZoom = Math.max(cropW / imgW, cropH / imgH);
     const cropScale = s.zoom / minZoom;
-
-    // Clamp to valid range
-    const imgAspect = imageWidth / imageHeight;
-    const absMinScale = imgAspect > DISPLAY_ASPECT ? 1.0 : DISPLAY_ASPECT / imgAspect;
 
     onSave({
       crop_x: Math.max(0, Math.min(1, cropCenterX)),
       crop_y: Math.max(0, Math.min(1, cropCenterY)),
-      crop_scale: Math.max(absMinScale, cropScale),
+      crop_scale: Math.max(1, cropScale),
     });
-  }, [getLayout, onSave, imageWidth, imageHeight]);
+  }, [getLayout, onSave]);
 
   // ─── Render ────────────────────────────────────────────────────────
   return (
