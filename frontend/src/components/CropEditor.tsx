@@ -18,53 +18,16 @@ interface CropEditorProps {
   onCancel: () => void;
 }
 
-function computeMinScale(imageWidth: number, imageHeight: number): number {
-  const imageAspect = imageWidth / imageHeight;
-  if (imageAspect > DISPLAY_ASPECT) {
-    return 1.0;
-  }
-  return DISPLAY_ASPECT / imageAspect;
-}
-
-function clampPosition(
-  cropX: number,
-  cropY: number,
-  scale: number,
-  imageWidth: number,
-  imageHeight: number,
-): { cropX: number; cropY: number } {
-  const imageAspect = imageWidth / imageHeight;
-
-  let visibleFractionX: number;
-  let visibleFractionY: number;
-
-  if (imageAspect > DISPLAY_ASPECT) {
-    visibleFractionX = DISPLAY_ASPECT / imageAspect / scale;
-    visibleFractionY = 1.0 / scale;
-  } else {
-    visibleFractionX = 1.0 / scale;
-    visibleFractionY = imageAspect / DISPLAY_ASPECT / scale;
-  }
-
-  const halfX = visibleFractionX / 2;
-  const halfY = visibleFractionY / 2;
-
-  return {
-    cropX: Math.max(halfX, Math.min(1 - halfX, cropX)),
-    cropY: Math.max(halfY, Math.min(1 - halfY, cropY)),
-  };
-}
-
-/** Get the midpoint between two pointer positions. */
-function midpoint(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-
-/** Get the distance between two pointer positions. */
-function distance(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
+/**
+ * iOS-style crop editor.
+ *
+ * Layout: full image fills the screen, a fixed crop rectangle (1024:600) is overlaid
+ * in the center. Area outside the rectangle is dimmed. User drags/pinches the image
+ * behind the fixed rectangle.
+ *
+ * Internal state: image transform as (translateX, translateY, zoom) in pixels.
+ * On save, converts to (crop_x, crop_y, crop_scale) — fractions of image dimensions.
+ */
 export default function CropEditor({
   src,
   imageWidth,
@@ -74,214 +37,321 @@ export default function CropEditor({
   onSave,
   onCancel,
 }: CropEditorProps) {
-  const minScale = useMemo(
-    () => computeMinScale(imageWidth, imageHeight),
-    [imageWidth, imageHeight],
+  const containerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+
+  // ─── Geometry: compute the image's rendered size and crop rect ──────
+  // We need these to convert between pixel transforms and crop fractions.
+  // They're computed on first render and updated on layout changes.
+  const getLayout = useCallback(() => {
+    const container = containerRef.current;
+    const img = imageRef.current;
+    if (!container || !img) return null;
+
+    const cW = container.clientWidth;
+    const cH = container.clientHeight;
+
+    // Image rendered size (object-fit: contain equivalent)
+    const imgAspect = imageWidth / imageHeight;
+    let imgW: number, imgH: number;
+    if (imgAspect > cW / cH) {
+      imgW = cW;
+      imgH = cW / imgAspect;
+    } else {
+      imgH = cH;
+      imgW = cH * imgAspect;
+    }
+
+    // Crop rectangle: centered, fits inside container, 1024:600 aspect
+    let cropW: number, cropH: number;
+    if (DISPLAY_ASPECT > cW / cH) {
+      cropW = cW;
+      cropH = cW / DISPLAY_ASPECT;
+    } else {
+      cropH = cH;
+      cropW = cH * DISPLAY_ASPECT;
+    }
+
+    return { cW, cH, imgW, imgH, cropW, cropH };
+  }, [imageWidth, imageHeight]);
+
+  // ─── Compute initial transform from crop data ──────────────────────
+  const initialTransform = useMemo(() => {
+    if (!initialCrop) return { tx: 0, ty: 0, zoom: 1 };
+
+    // We need layout to convert. Can't use refs in useMemo, so approximate:
+    // The zoom relative to "image fits crop rect" baseline.
+    // At zoom=1 the image is at its natural rendered size.
+    // crop_scale=minScale means the image just fills the crop rect.
+    const imgAspect = imageWidth / imageHeight;
+    const minScale = imgAspect > DISPLAY_ASPECT ? 1.0 : DISPLAY_ASPECT / imgAspect;
+    const zoom = initialCrop.crop_scale / minScale;
+
+    // Position: crop_x/crop_y are the center of the crop rect on the image (0-1).
+    // At tx=0,ty=0 the image is centered, so crop center = image center (0.5, 0.5).
+    // We need to shift the image so that crop_x,crop_y aligns with the crop rect center.
+    // tx = (0.5 - crop_x) * imgW * zoom, ty = (0.5 - crop_y) * imgH * zoom
+    // But we don't know imgW/imgH yet (no layout). Use normalized values, convert in effect.
+    return {
+      tx: 0, ty: 0, zoom,
+      pendingCrop: initialCrop,
+    };
+  }, [initialCrop, imageWidth, imageHeight]);
+
+  const [tx, setTx] = useState(initialTransform.tx);
+  const [ty, setTy] = useState(initialTransform.ty);
+  const [zoom, setZoom] = useState(initialTransform.zoom);
+  const [initialized, setInitialized] = useState(!initialCrop);
+
+  // Refs for fresh values in pointer handlers
+  const stateRef = useRef({ tx, ty, zoom });
+  stateRef.current = { tx, ty, zoom };
+
+  // ─── Initialize position from initialCrop once layout is available ─
+  const handleImageLoad = useCallback(() => {
+    if (initialized || !initialCrop) return;
+    const layout = getLayout();
+    if (!layout) return;
+
+    const { imgW, imgH } = layout;
+    const imgAspect = imageWidth / imageHeight;
+    const minScale = imgAspect > DISPLAY_ASPECT ? 1.0 : DISPLAY_ASPECT / imgAspect;
+    const z = initialCrop.crop_scale / minScale;
+
+    const newTx = (0.5 - initialCrop.crop_x) * imgW * z;
+    const newTy = (0.5 - initialCrop.crop_y) * imgH * z;
+
+    setTx(newTx);
+    setTy(newTy);
+    setZoom(z);
+    stateRef.current = { tx: newTx, ty: newTy, zoom: z };
+    setInitialized(true);
+  }, [initialized, initialCrop, getLayout, imageWidth, imageHeight]);
+
+  // ─── Clamp: ensure image covers the crop rectangle ─────────────────
+  const clamp = useCallback(
+    (newTx: number, newTy: number, newZoom: number) => {
+      const layout = getLayout();
+      if (!layout) return { tx: newTx, ty: newTy, zoom: newZoom };
+
+      const { imgW, imgH, cropW, cropH } = layout;
+      const scaledW = imgW * newZoom;
+      const scaledH = imgH * newZoom;
+
+      // Min zoom: image must cover the crop rect
+      const minZoomW = cropW / imgW;
+      const minZoomH = cropH / imgH;
+      const minZoom = Math.max(minZoomW, minZoomH);
+      const z = Math.max(minZoom, Math.min(10, newZoom));
+
+      const sw = imgW * z;
+      const sh = imgH * z;
+
+      // Max translation: the image edge must not enter the crop rect
+      const maxTx = (sw - cropW) / 2;
+      const maxTy = (sh - cropH) / 2;
+
+      return {
+        tx: Math.max(-maxTx, Math.min(maxTx, newTx)),
+        ty: Math.max(-maxTy, Math.min(maxTy, newTy)),
+        zoom: z,
+      };
+    },
+    [getLayout],
   );
-  const maxScale = Math.max(minScale * 3, 10);
 
-  const initScale = initialCrop
-    ? Math.max(initialCrop.crop_scale, minScale)
-    : minScale;
-
-  const initPos = initialCrop
-    ? clampPosition(initialCrop.crop_x, initialCrop.crop_y, initScale, imageWidth, imageHeight)
-    : { cropX: 0.5, cropY: 0.5 };
-
-  const [cropX, setCropX] = useState(initPos.cropX);
-  const [cropY, setCropY] = useState(initPos.cropY);
-  const [scale, setScale] = useState(initScale);
-
-  // Refs for fresh values inside pointer handlers (avoid stale closures)
-  const stateRef = useRef({ cropX, cropY, scale });
-  stateRef.current = { cropX, cropY, scale };
-
-  const cropAreaRef = useRef<HTMLDivElement>(null);
-
-  // ─── Multi-pointer tracking ───────────────────────────────────
-  // Map of pointerId → { x, y } for all active pointers on the crop area.
-  // 1 pointer = pan. 2 pointers = pinch-to-zoom + pan.
+  // ─── Multi-pointer tracking ────────────────────────────────────────
   const pointers = useRef(new Map<number, { x: number; y: number }>());
-  // Snapshot of scale when pinch started, so we compute relative zoom.
-  const pinchStartScale = useRef(1);
   const pinchStartDist = useRef(0);
-  // Last known midpoint for 2-finger pan during pinch.
+  const pinchStartZoom = useRef(1);
   const lastMid = useRef({ x: 0, y: 0 });
 
-  const applyDelta = useCallback(
-    (dx: number, dy: number, currentScale: number) => {
-      const el = cropAreaRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-
-      // Dragging right = image moves right = crop center moves left.
-      const dCropX = -(dx / rect.width) / currentScale;
-      const dCropY = -(dy / rect.height) / currentScale;
-
-      const s = stateRef.current;
-      const clamped = clampPosition(s.cropX + dCropX, s.cropY + dCropY, currentScale, imageWidth, imageHeight);
-      setCropX(clamped.cropX);
-      setCropY(clamped.cropY);
-      stateRef.current.cropX = clamped.cropX;
-      stateRef.current.cropY = clamped.cropY;
+  const applyState = useCallback(
+    (newTx: number, newTy: number, newZoom: number) => {
+      const c = clamp(newTx, newTy, newZoom);
+      setTx(c.tx);
+      setTy(c.ty);
+      setZoom(c.zoom);
+      stateRef.current = c;
     },
-    [imageWidth, imageHeight],
+    [clamp],
   );
-
-  const applyScale = useCallback(
-    (newScale: number) => {
-      const clamped = Math.max(minScale, Math.min(maxScale, newScale));
-      setScale(clamped);
-      stateRef.current.scale = clamped;
-      const s = stateRef.current;
-      const pos = clampPosition(s.cropX, s.cropY, clamped, imageWidth, imageHeight);
-      setCropX(pos.cropX);
-      setCropY(pos.cropY);
-      stateRef.current.cropX = pos.cropX;
-      stateRef.current.cropY = pos.cropY;
-    },
-    [minScale, maxScale, imageWidth, imageHeight],
-  );
-
-  // ─── Pointer event handlers ───────────────────────────────────
-  // `touch-action: none` on the element tells the browser we handle everything.
-  // All input (mouse, touch, pen) comes through as pointer events.
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
-    const el = cropAreaRef.current;
+    const el = containerRef.current;
     if (!el) return;
     el.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    // If this is the 2nd pointer, snapshot pinch state
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
-      pinchStartDist.current = distance(a, b);
-      pinchStartScale.current = stateRef.current.scale;
-      lastMid.current = midpoint(a, b);
+      pinchStartDist.current = Math.hypot(b.x - a.x, b.y - a.y);
+      pinchStartZoom.current = stateRef.current.zoom;
+      lastMid.current = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     }
   }, []);
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!pointers.current.has(e.pointerId)) return;
-
       const prev = pointers.current.get(e.pointerId)!;
       pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+      const s = stateRef.current;
+
       if (pointers.current.size === 1) {
-        // Single pointer → pan
-        const dx = e.clientX - prev.x;
-        const dy = e.clientY - prev.y;
-        applyDelta(dx, dy, stateRef.current.scale);
+        applyState(s.tx + e.clientX - prev.x, s.ty + e.clientY - prev.y, s.zoom);
       } else if (pointers.current.size === 2) {
-        // Two pointers → pinch-to-zoom + pan
         const [a, b] = [...pointers.current.values()];
-        const dist = distance(a, b);
-        const mid = midpoint(a, b);
+        const dist = Math.hypot(b.x - a.x, b.y - a.y);
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 
-        // Zoom
-        if (pinchStartDist.current > 0) {
-          applyScale(pinchStartScale.current * (dist / pinchStartDist.current));
-        }
+        const newZoom = pinchStartDist.current > 0
+          ? pinchStartZoom.current * (dist / pinchStartDist.current)
+          : s.zoom;
 
-        // Pan (track midpoint movement)
         const dx = mid.x - lastMid.current.x;
         const dy = mid.y - lastMid.current.y;
-        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-          applyDelta(dx, dy, stateRef.current.scale);
-        }
         lastMid.current = mid;
+
+        applyState(s.tx + dx, s.ty + dy, newZoom);
       }
     },
-    [applyDelta, applyScale],
+    [applyState],
   );
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
     pinchStartDist.current = 0;
-
-    // If we still have 2 pointers after removing one (shouldn't happen normally),
-    // reset pinch state. If we go from 2→1, the remaining pointer continues as pan.
   }, []);
 
-  // ─── Mouse wheel zoom ──────────────────────────────────────────
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
       e.stopPropagation();
+      const s = stateRef.current;
       const delta = -e.deltaY * 0.005;
-      applyScale(stateRef.current.scale * (1 + delta));
+      applyState(s.tx, s.ty, s.zoom * (1 + delta));
     },
-    [applyScale],
+    [applyState],
   );
+
+  // ─── Slider ────────────────────────────────────────────────────────
+  const sliderMin = useMemo(() => {
+    const layout = getLayout();
+    if (!layout) {
+      const imgAspect = imageWidth / imageHeight;
+      return imgAspect > DISPLAY_ASPECT ? 1.0 : DISPLAY_ASPECT / imgAspect;
+    }
+    return Math.max(layout.cropW / layout.imgW, layout.cropH / layout.imgH);
+  }, [getLayout, imageWidth, imageHeight]);
 
   const handleSliderChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      applyScale(parseFloat(e.target.value));
+      const s = stateRef.current;
+      applyState(s.tx, s.ty, parseFloat(e.target.value));
     },
-    [applyScale],
+    [applyState],
   );
 
+  // ─── Save: convert pixel transform → crop fractions ────────────────
   const handleSave = useCallback(() => {
-    onSave({ crop_x: cropX, crop_y: cropY, crop_scale: scale });
-  }, [onSave, cropX, cropY, scale]);
+    const layout = getLayout();
+    if (!layout) return;
 
+    const { imgW, imgH, cropW, cropH } = layout;
+    const s = stateRef.current;
+
+    // Image center is at container center + (tx, ty).
+    // Crop rect center is at container center (0, 0 relative).
+    // So crop center on image = image center - tx/ty, in image-fraction coords:
+    const cropCenterX = 0.5 - s.tx / (imgW * s.zoom);
+    const cropCenterY = 0.5 - s.ty / (imgH * s.zoom);
+
+    // crop_scale: how much we're zoomed relative to "image just fills crop rect"
+    const minZoom = Math.max(cropW / imgW, cropH / imgH);
+    const cropScale = s.zoom / minZoom;
+
+    // Clamp to valid range
+    const imgAspect = imageWidth / imageHeight;
+    const absMinScale = imgAspect > DISPLAY_ASPECT ? 1.0 : DISPLAY_ASPECT / imgAspect;
+
+    onSave({
+      crop_x: Math.max(0, Math.min(1, cropCenterX)),
+      crop_y: Math.max(0, Math.min(1, cropCenterY)),
+      crop_scale: Math.max(absMinScale, cropScale),
+    });
+  }, [getLayout, onSave, imageWidth, imageHeight]);
+
+  // ─── Render ────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full w-full">
-      {/* Crop area — fills available space */}
-      <div className="flex-1 min-h-0 relative bg-black">
-        {/* Dimmed full image behind for spatial context */}
+      {/* Image + overlay area */}
+      <div
+        ref={containerRef}
+        className="flex-1 min-h-0 relative bg-black overflow-hidden"
+        style={{ touchAction: "none" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onWheel={onWheel}
+      >
+        {/* Draggable/zoomable image */}
         <img
+          ref={imageRef}
           src={src}
-          alt=""
-          aria-hidden="true"
+          alt="Crop preview"
           draggable={false}
-          className="absolute inset-0 w-full h-full object-contain brightness-[0.3] select-none pointer-events-none"
-          data-testid="crop-dimmed-bg"
+          onLoad={handleImageLoad}
+          className="absolute select-none pointer-events-none"
+          style={{
+            /* Center the image, then apply user transform */
+            left: "50%",
+            top: "50%",
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+            transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${zoom})`,
+            transformOrigin: "center center",
+          }}
         />
 
-        {/* Centered crop viewport at display aspect ratio */}
-        <div className="absolute inset-0 flex items-center justify-center p-4">
-          <div
-            ref={cropAreaRef}
-            className="relative overflow-hidden cursor-grab active:cursor-grabbing border-2 border-white/60 w-full h-full"
-            style={{
-              touchAction: "none",      /* KEY: tells browser we handle all gestures */
-              maxWidth: "100%",
-              maxHeight: "100%",
-              aspectRatio: "1024 / 600",
-            }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            onWheel={onWheel}
-          >
-            <img
-              src={src}
-              alt="Crop preview"
-              className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
-              draggable={false}
-              style={{
-                objectPosition: `${cropX * 100}% ${cropY * 100}%`,
-                transform: `scale(${scale})`,
-                transformOrigin: `${cropX * 100}% ${cropY * 100}%`,
-              }}
-            />
+        {/* Dimmed overlay with crop rectangle "hole" using box-shadow */}
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%, -50%)",
+            /* Size = crop rectangle. Constrained to container with aspect ratio. */
+            width: "100%",
+            maxHeight: "100%",
+            aspectRatio: "1024 / 600",
+            /* Giant box-shadow creates the dimmed area outside */
+            boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.55)",
+            border: "1px solid rgba(255, 255, 255, 0.5)",
+          }}
+        >
+          {/* Rule of thirds grid lines */}
+          <div className="absolute inset-0">
+            <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/20" />
+            <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/20" />
+            <div className="absolute top-1/3 left-0 right-0 h-px bg-white/20" />
+            <div className="absolute top-2/3 left-0 right-0 h-px bg-white/20" />
           </div>
         </div>
       </div>
 
       {/* Controls bar */}
       <div className="flex items-center gap-3 px-4 py-3 border-t border-white/[0.06] bg-surface">
-        <span className="text-warm-gray text-sm shrink-0">−</span>
+        <span className="text-warm-gray text-sm shrink-0">-</span>
         <input
           type="range"
           role="slider"
-          min={minScale}
-          max={maxScale}
+          min={sliderMin}
+          max={Math.max(sliderMin * 4, 10)}
           step={0.01}
-          value={scale}
+          value={zoom}
           onChange={handleSliderChange}
           className="flex-1 h-2 accent-blue-600"
         />
