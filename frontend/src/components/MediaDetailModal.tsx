@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Media } from "../api/client";
 import { api, modalVideoUrl, originalUrl, thumbnailUrl } from "../api/client";
 import ConfirmDialog from "./ConfirmDialog";
+import CropEditor from "./CropEditor";
 
 interface MediaDetailModalProps {
   media: Media | null;
@@ -43,11 +44,16 @@ export default function MediaDetailModal({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [jumping, setJumping] = useState(false);
   const [jumpError, setJumpError] = useState<string | null>(null);
+  const [cropEditing, setCropEditing] = useState(false);
+  const [cropError, setCropError] = useState<string | null>(null);
+  const [cropSaving, setCropSaving] = useState(false);
 
-  // Reset image loaded state when media changes
+  // Reset image loaded state and crop state when media changes
   useEffect(() => {
     setImageLoaded(false);
     setJumpError(null);
+    setCropEditing(false);
+    setCropError(null);
   }, [media?.id]);
 
   // Body scroll lock
@@ -74,6 +80,30 @@ export default function MediaDetailModal({
   if (!media) return null;
 
   const isReady = media.processing_status === "ready";
+
+  const handleSaveCrop = async (crop: { crop_x: number; crop_y: number; crop_scale: number }) => {
+    if (!media) return;
+    setCropSaving(true);
+    setCropError(null);
+    try {
+      await api.media.setCrop(media.id, crop);
+      setCropEditing(false);
+    } catch {
+      setCropError("Failed to save crop");
+    } finally {
+      setCropSaving(false);
+    }
+  };
+
+  const handleRemoveCrop = async () => {
+    if (!media) return;
+    setCropError(null);
+    try {
+      await api.media.removeCrop(media.id);
+    } catch {
+      setCropError("Failed to remove crop");
+    }
+  };
   const jumpTitle = media.processing_status === "processing"
     ? "Not available while processing"
     : media.processing_status === "error"
@@ -141,6 +171,42 @@ export default function MediaDetailModal({
                   />
                 </svg>
               </button>
+              {media.media_type === "photo" && isReady && !cropEditing && (
+                media.crop_scale != null ? (
+                  <>
+                    <button
+                      onClick={() => setCropEditing(true)}
+                      className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors"
+                      aria-label="Edit crop"
+                    >
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h10v10M7 17V7h10" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h2M7 3v2M17 21v-2M21 17h-2" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={handleRemoveCrop}
+                      className="rounded-lg p-2 text-warm-gray hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      aria-label="Remove crop"
+                    >
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setCropEditing(true)}
+                    className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors"
+                    aria-label="Add crop"
+                  >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h10v10M7 17V7h10" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h2M7 3v2M17 21v-2M21 17h-2" />
+                    </svg>
+                  </button>
+                )
+              )}
               <a
                 href={originalUrl(media)}
                 download={media.original_name}
@@ -214,88 +280,126 @@ export default function MediaDetailModal({
               <p className="text-sm font-medium text-red-400">Error: {jumpError}</p>
             </div>
           )}
+          {cropError && (
+            <div className="px-5 py-2 bg-red-500/10 border-b border-red-500/20">
+              <p className="text-sm font-medium text-red-400">Error: {cropError}</p>
+            </div>
+          )}
 
           {/* Media area */}
-          <div className="flex-1 min-h-0 bg-black flex items-center justify-center overflow-hidden">
-            {media.processing_status === "processing" ? (
-              <div className="relative flex items-center justify-center">
-                <img
-                  src={thumbnailUrl(media)}
-                  alt={media.original_name}
-                  className="max-w-full max-h-[70vh] object-contain opacity-40"
-                />
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <svg className="h-16 w-16 -rotate-90" viewBox="0 0 48 48">
-                    <circle
-                      cx="24" cy="24" r="20"
-                      fill="none"
-                      stroke="rgba(255,255,255,0.2)"
-                      strokeWidth="3"
-                    />
-                    <circle
-                      cx="24" cy="24" r="20"
-                      fill="none"
-                      stroke="#D4956A"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeDasharray={2 * Math.PI * 20}
-                      strokeDashoffset={
-                        2 * Math.PI * 20 * (1 - (media.processing_progress ?? 0) / 100)
-                      }
-                      className="transition-[stroke-dashoffset] duration-500 ease-out"
-                    />
-                  </svg>
-                  <span className="text-sm font-medium text-warm-white drop-shadow-md mt-2">
-                    {media.processing_progress != null && media.processing_progress > 0
-                      ? `${media.processing_progress}%`
-                      : "Processing..."}
-                  </span>
-                </div>
-              </div>
-            ) : media.processing_status === "error" ? (
-              <div className="relative flex items-center justify-center">
-                <img
-                  src={thumbnailUrl(media)}
-                  alt={media.original_name}
-                  className="max-w-full max-h-[70vh] object-contain opacity-60"
-                />
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <svg className="h-10 w-10 text-red-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-sm font-medium text-red-300">Failed</span>
-                </div>
-              </div>
-            ) : media.media_type === "video" ? (
-              <video
-                src={modalVideoUrl(media)}
-                data-media-id={media.id}
-                className="max-w-full max-h-[70vh] object-contain"
-                autoPlay
-                muted
-                controls
+          {cropEditing ? (
+            <div className="flex-1 min-h-0 flex items-center justify-center p-4 bg-black">
+              <CropEditor
+                src={originalUrl(media)}
+                imageWidth={media.width}
+                imageHeight={media.height}
+                initialCrop={
+                  media.crop_scale != null
+                    ? { crop_x: media.crop_x!, crop_y: media.crop_y!, crop_scale: media.crop_scale }
+                    : null
+                }
+                saving={cropSaving}
+                onSave={handleSaveCrop}
+                onCancel={() => setCropEditing(false)}
               />
-            ) : (
-              <div className="relative flex items-center justify-center w-full h-full">
-                {!imageLoaded && (
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 bg-black flex items-center justify-center overflow-hidden">
+              {media.processing_status === "processing" ? (
+                <div className="relative flex items-center justify-center">
                   <img
                     src={thumbnailUrl(media)}
-                    alt=""
-                    className="max-w-full max-h-[70vh] object-contain blur-sm"
+                    alt={media.original_name}
+                    className="max-w-full max-h-[70vh] object-contain opacity-40"
                   />
-                )}
-                <img
-                  src={originalUrl(media)}
-                  alt={media.original_name}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <svg className="h-16 w-16 -rotate-90" viewBox="0 0 48 48">
+                      <circle
+                        cx="24" cy="24" r="20"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.2)"
+                        strokeWidth="3"
+                      />
+                      <circle
+                        cx="24" cy="24" r="20"
+                        fill="none"
+                        stroke="#D4956A"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeDasharray={2 * Math.PI * 20}
+                        strokeDashoffset={
+                          2 * Math.PI * 20 * (1 - (media.processing_progress ?? 0) / 100)
+                        }
+                        className="transition-[stroke-dashoffset] duration-500 ease-out"
+                      />
+                    </svg>
+                    <span className="text-sm font-medium text-warm-white drop-shadow-md mt-2">
+                      {media.processing_progress != null && media.processing_progress > 0
+                        ? `${media.processing_progress}%`
+                        : "Processing..."}
+                    </span>
+                  </div>
+                </div>
+              ) : media.processing_status === "error" ? (
+                <div className="relative flex items-center justify-center">
+                  <img
+                    src={thumbnailUrl(media)}
+                    alt={media.original_name}
+                    className="max-w-full max-h-[70vh] object-contain opacity-60"
+                  />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <svg className="h-10 w-10 text-red-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-sm font-medium text-red-300">Failed</span>
+                  </div>
+                </div>
+              ) : media.media_type === "video" ? (
+                <video
+                  src={modalVideoUrl(media)}
                   data-media-id={media.id}
-                  className={`max-w-full max-h-[70vh] object-contain ${
-                    !imageLoaded ? "absolute inset-0 m-auto opacity-0" : ""
-                  }`}
-                  onLoad={() => setImageLoaded(true)}
+                  className="max-w-full max-h-[70vh] object-contain"
+                  autoPlay
+                  muted
+                  controls
                 />
-              </div>
-            )}
-          </div>
+              ) : (
+                <div data-testid="crop-overlay" className="relative flex items-center justify-center w-full h-full">
+                  {media.crop_scale != null ? (
+                    <>
+                      {/* Dimmed full image */}
+                      <img
+                        src={originalUrl(media)}
+                        alt={media.original_name}
+                        data-media-id={media.id}
+                        className="max-w-full max-h-[70vh] object-contain brightness-[0.3]"
+                      />
+                      {/* TODO: Crop rectangle overlay — will be refined in visual QA */}
+                    </>
+                  ) : (
+                    <>
+                      {!imageLoaded && (
+                        <img
+                          src={thumbnailUrl(media)}
+                          alt=""
+                          className="max-w-full max-h-[70vh] object-contain blur-sm"
+                        />
+                      )}
+                      <img
+                        src={originalUrl(media)}
+                        alt={media.original_name}
+                        data-media-id={media.id}
+                        className={`max-w-full max-h-[70vh] object-contain ${
+                          !imageLoaded ? "absolute inset-0 m-auto opacity-0" : ""
+                        }`}
+                        onLoad={() => setImageLoaded(true)}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Metadata bar */}
           <div className="flex items-center gap-4 px-5 py-3 border-t border-white/[0.06] text-xs text-warm-gray">
