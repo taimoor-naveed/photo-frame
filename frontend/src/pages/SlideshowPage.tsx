@@ -39,10 +39,13 @@ export default function SlideshowPage() {
         api.media.listAll(),
         api.settings.get(),
       ]);
+      console.log(
+        `[Slideshow] loaded: ${allMedia.length} media, interval=${settingsRes.slideshow_interval}s, transition=${settingsRes.transition_type}`,
+      );
       setMediaList(allMedia);
       setSettings(settingsRes);
     } catch {
-      // Retry after 5s on failure
+      console.error("[Slideshow] fetch failed, retrying in 5s");
       setTimeout(fetchData, 5000);
     } finally {
       setLoading(false);
@@ -75,7 +78,9 @@ export default function SlideshowPage() {
       const ready = mediaList.filter(
         (m) => m.media_type === "photo" || m.processing_status === "ready",
       );
-      setSlide({ playlist: shuffleArray(ready), currentIndex: 0 });
+      const shuffled = shuffleArray(ready);
+      console.log(`[Slideshow] playlist built: ${shuffled.length} items`);
+      setSlide({ playlist: shuffled, currentIndex: 0 });
     }
   }, [mediaList, settings, shuffleArray]);
 
@@ -87,6 +92,10 @@ export default function SlideshowPage() {
     (next: number) => {
       if (!playlist.length) return;
       if (next === currentIndex) return; // Single item or same slide — no transition
+      const nextMedia = playlist[next];
+      console.log(
+        `[Slideshow] advance → slide ${next + 1}/${playlist.length} (media_id=${nextMedia?.id}, type=${nextMedia?.media_type})`,
+      );
       waitingForVideo.current = false;
       setPrevMedia(playlistRef.current[currentIndex]);
       setSlide((prev) => ({ ...prev, currentIndex: next }));
@@ -112,7 +121,10 @@ export default function SlideshowPage() {
   useEffect(() => {
     clearTimeout(advanceTimer.current);
     waitingForVideo.current = false;
-    if (paused || !settings || !currentMedia) return;
+    if (paused || !settings || !currentMedia) {
+      if (paused) console.log("[Slideshow] timer stopped (paused)");
+      return;
+    }
 
     const interval = settings.slideshow_interval;
 
@@ -127,10 +139,12 @@ export default function SlideshowPage() {
         return;
       }
       // Video is longer than interval — wait for it to finish
+      console.log(`[Slideshow] waiting for video to end (media_id=${currentMedia.id})`);
       waitingForVideo.current = true;
       return;
     }
 
+    console.log(`[Slideshow] timer started (${interval}s)`);
     advanceTimer.current = setTimeout(() => goNextRef.current(), interval * 1000);
     return () => clearTimeout(advanceTimer.current);
   }, [currentMedia?.id, paused, settings?.slideshow_interval, currentMedia?.media_type, currentMedia?.duration, playlist.length]);
@@ -172,6 +186,8 @@ export default function SlideshowPage() {
   }, []);
 
   const handleVideoError = useCallback(() => {
+    const id = playlistRef.current[currentIndexRef.current]?.id;
+    console.error(`[Slideshow] video error on media_id=${id}, skipping`);
     goNextRef.current();
   }, []);
 
@@ -207,6 +223,7 @@ export default function SlideshowPage() {
     (event: WsEvent) => {
       if (event.type === "media_added") {
         const added = event.payload as unknown as Media;
+        console.log(`[Slideshow] media added: id=${added.id}, type=${added.media_type}`);
         setMediaList((prev) => [added, ...prev]);
         // Insert at random position with dedup guard
         const isReady =
@@ -229,6 +246,7 @@ export default function SlideshowPage() {
         }
       } else if (event.type === "media_deleted") {
         const { id } = event.payload as { id: number };
+        console.log(`[Slideshow] media deleted: id=${id}`);
         setMediaList((prev) => prev.filter((m) => m.id !== id));
         // Atomically update playlist + currentIndex — handles duplicates safely
         setSlide((prev) => {
@@ -278,7 +296,11 @@ export default function SlideshowPage() {
           return { playlist: newPlaylist, currentIndex: newIndex };
         });
       } else if (event.type === "settings_changed") {
-        setSettings(event.payload as unknown as Settings);
+        const s = event.payload as unknown as Settings;
+        console.log(
+          `[Slideshow] settings changed: interval=${s.slideshow_interval}s, transition=${s.transition_type}`,
+        );
+        setSettings(s);
         resetHideTimer();
       } else if (event.type === "slideshow_jump") {
         const { id } = event.payload as { id: number };
@@ -341,6 +363,15 @@ export default function SlideshowPage() {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [goNext, goPrev]);
+
+  // ─── Visibility change logging ──────────────────────────────
+  useEffect(() => {
+    const handler = () => {
+      console.log(`[Slideshow] visibility: ${document.visibilityState}`);
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, []);
 
   // ─── Preload next media ───────────────────────────────────
 
