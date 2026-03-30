@@ -454,7 +454,7 @@ export default function MediaDetailModal({
                 <>
                   <button
                     onClick={() => setCropEditing(true)}
-                    className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-gray hover:text-warm-white hover:bg-white/10 transition-colors text-sm"
+                    className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.12] border border-white/[0.1] text-warm-white hover:bg-white/[0.18] transition-colors text-sm"
                     aria-label="Edit crop"
                   >
                     Edit Crop
@@ -470,7 +470,7 @@ export default function MediaDetailModal({
               ) : (
                 <button
                   onClick={() => setCropEditing(true)}
-                  className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-gray hover:text-warm-white hover:bg-white/10 transition-colors text-sm"
+                  className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.12] border border-white/[0.1] text-warm-white hover:bg-white/[0.18] transition-colors text-sm"
                   aria-label="Add crop"
                 >
                   Set Crop
