@@ -5,10 +5,12 @@
 #          0 9 * * * /home/pi/slideshow.sh on
 
 SLIDESHOW_URL="http://home-pc/slideshow"
-LOG="/tmp/slideshow.log"
+LOG="/home/pi/logs/slideshow.log"
 DISPLAY_OUTPUT="HDMI-A-1"
 export WAYLAND_DISPLAY=wayland-0
 export XDG_RUNTIME_DIR=/run/user/1000
+
+mkdir -p /home/pi/logs
 
 log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG"
@@ -34,7 +36,7 @@ case "$1" in
             --disable-session-crashed-bubble --disable-translate --no-first-run \
             --start-fullscreen --enable-features=VaapiVideoDecoder \
             --enable-gpu-rasterization --remote-debugging-port=9222 \
-            "$SLIDESHOW_URL" > /tmp/chromium.log 2>&1 & disown
+            "$SLIDESHOW_URL" >> /home/pi/logs/chromium.log 2>&1 & disown
         log "Display on, chromium started"
         ;;
     *)
