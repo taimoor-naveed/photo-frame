@@ -54,18 +54,19 @@ describe("CropEditor", () => {
     expect(overlay).toBeTruthy();
   });
 
-  it("exposes save function via saveRef", () => {
+  it("exposes save function via saveRef with valid crop data", () => {
     const onSave = vi.fn();
     const saveRef = { current: null as (() => void) | null };
     render(<CropEditor {...defaultProps} onSave={onSave} saveRef={saveRef} />);
     expect(saveRef.current).toBeInstanceOf(Function);
-    // Calling save should invoke onSave with crop data
     saveRef.current!();
     expect(onSave).toHaveBeenCalledOnce();
     const cropData = onSave.mock.calls[0][0];
-    expect(cropData).toHaveProperty("crop_x");
-    expect(cropData).toHaveProperty("crop_y");
-    expect(cropData).toHaveProperty("crop_scale");
+    // Assert specific values: default crop should center at 0.5, 0.5 with scale >= 1
+    expect(cropData.crop_x).toBeCloseTo(0.5, 1);
+    expect(cropData.crop_y).toBeCloseTo(0.5, 1);
+    expect(cropData.crop_scale).toBeGreaterThanOrEqual(1);
+    expect(cropData.crop_scale).toBeLessThanOrEqual(10);
   });
 
   it("initializes from existing crop data via saveRef round-trip", () => {
@@ -85,8 +86,48 @@ describe("CropEditor", () => {
     fireEvent.load(screen.getByAltText("Crop preview"));
     saveRef.current!();
     const cropData = onSave.mock.calls[0][0];
-    expect(cropData.crop_x).toBeCloseTo(0.3, 0);
-    expect(cropData.crop_y).toBeCloseTo(0.4, 0);
-    expect(cropData.crop_scale).toBeGreaterThan(1);
+    expect(cropData.crop_x).toBeCloseTo(0.3, 1);
+    expect(cropData.crop_y).toBeCloseTo(0.4, 1);
+    expect(cropData.crop_scale).toBeCloseTo(3.0, 0);
+  });
+
+  it("clamps crop_scale to maximum of 10 on save", () => {
+    const onSave = vi.fn();
+    const saveRef = { current: null as (() => void) | null };
+    // Use a very small image relative to container so minZoom is tiny,
+    // making crop_scale = zoom/minZoom potentially very large
+    render(
+      <CropEditor
+        {...defaultProps}
+        imageWidth={100}
+        imageHeight={100}
+        onSave={onSave}
+        saveRef={saveRef}
+      />,
+    );
+    fireEvent.load(screen.getByAltText("Crop preview"));
+    saveRef.current!();
+    const cropData = onSave.mock.calls[0][0];
+    expect(cropData.crop_scale).toBeLessThanOrEqual(10);
+  });
+
+  it("renders with landscape image (imageWidth > imageHeight)", () => {
+    const onSave = vi.fn();
+    const saveRef = { current: null as (() => void) | null };
+    render(
+      <CropEditor
+        {...defaultProps}
+        imageWidth={2000}
+        imageHeight={800}
+        onSave={onSave}
+        saveRef={saveRef}
+      />,
+    );
+    fireEvent.load(screen.getByAltText("Crop preview"));
+    saveRef.current!();
+    expect(onSave).toHaveBeenCalledOnce();
+    const cropData = onSave.mock.calls[0][0];
+    expect(cropData.crop_x).toBeCloseTo(0.5, 1);
+    expect(cropData.crop_y).toBeCloseTo(0.5, 1);
   });
 });

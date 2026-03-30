@@ -121,3 +121,56 @@ class TestCropRequest:
     def test_crop_scale_above_maximum_rejected(self):
         with pytest.raises(ValidationError):
             CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=10.1)
+
+    def test_crop_scale_at_maximum(self):
+        req = CropRequest(crop_x=0.5, crop_y=0.5, crop_scale=10.0)
+        assert req.crop_scale == 10.0
+
+    def test_nan_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=float("nan"), crop_y=0.5, crop_scale=1.0)
+
+    def test_infinity_rejected(self):
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=float("inf"), crop_y=0.5, crop_scale=1.0)
+        with pytest.raises(ValidationError):
+            CropRequest(crop_x=0.5, crop_y=float("-inf"), crop_scale=1.0)
+
+
+class TestMediaOutWithCrop:
+    def test_media_out_serializes_crop_fields(self):
+        data = MediaOut(
+            id=1,
+            filename="abc.jpg",
+            original_name="photo.jpg",
+            media_type="photo",
+            width=800,
+            height=600,
+            file_size=12345,
+            thumb_filename="thumb_abc.jpg",
+            uploaded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            crop_x=0.3,
+            crop_y=0.4,
+            crop_scale=2.0,
+        )
+        d = data.model_dump()
+        assert d["crop_x"] == 0.3
+        assert d["crop_y"] == 0.4
+        assert d["crop_scale"] == 2.0
+
+    def test_media_out_null_crop_fields(self):
+        data = MediaOut(
+            id=1,
+            filename="abc.jpg",
+            original_name="photo.jpg",
+            media_type="photo",
+            width=800,
+            height=600,
+            file_size=12345,
+            thumb_filename="thumb_abc.jpg",
+            uploaded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        d = data.model_dump()
+        assert d["crop_x"] is None
+        assert d["crop_y"] is None
+        assert d["crop_scale"] is None

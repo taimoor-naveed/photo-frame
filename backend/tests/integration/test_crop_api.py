@@ -153,6 +153,91 @@ class TestRemoveCrop:
         assert data["crop_scale"] is None
 
 
+class TestSetCropEdgeCases:
+    """Additional edge cases: negative values, wrong types, boundary IDs."""
+
+    def test_negative_crop_values(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": -1.0, "crop_y": 0.5, "crop_scale": 1.0},
+        )
+        assert resp.status_code == 422
+
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": 0.5, "crop_y": -0.001, "crop_scale": 1.0},
+        )
+        assert resp.status_code == 422
+
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": 0.5, "crop_y": 0.5, "crop_scale": -5.0},
+        )
+        assert resp.status_code == 422
+
+    def test_wrong_types_rejected(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": "hello", "crop_y": 0.5, "crop_scale": 1.0},
+        )
+        assert resp.status_code == 422
+
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": 0.5, "crop_y": True, "crop_scale": 1.0},
+        )
+        # Note: True coerces to 1.0 in Pydantic, which is valid
+        assert resp.status_code in (200, 422)
+
+    def test_crop_scale_at_maximum(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={"crop_x": 0.5, "crop_y": 0.5, "crop_scale": 10.0},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["crop_scale"] == pytest.approx(10.0)
+
+    def test_media_id_zero_rejected(self, client):
+        resp = client.put(
+            "/api/media/0/crop",
+            json={"crop_x": 0.5, "crop_y": 0.5, "crop_scale": 1.0},
+        )
+        assert resp.status_code == 422
+
+    def test_media_id_negative_rejected(self, client):
+        resp = client.put(
+            "/api/media/-1/crop",
+            json={"crop_x": 0.5, "crop_y": 0.5, "crop_scale": 1.0},
+        )
+        assert resp.status_code == 422
+
+    def test_empty_body_rejected(self, client, sample_jpeg):
+        media = _upload_photo(client, sample_jpeg)
+        resp = client.put(
+            f"/api/media/{media['id']}/crop",
+            json={},
+        )
+        assert resp.status_code == 422
+
+
+class TestRemoveCropEdgeCases:
+    def test_remove_crop_on_video_rejected(self, client, sample_video):
+        media = _upload_video(client, sample_video)
+        resp = client.delete(f"/api/media/{media['id']}/crop")
+        assert resp.status_code == 400
+
+    def test_remove_crop_media_id_zero(self, client):
+        resp = client.delete("/api/media/0/crop")
+        assert resp.status_code == 422
+
+    def test_remove_crop_media_id_negative(self, client):
+        resp = client.delete("/api/media/-1/crop")
+        assert resp.status_code == 422
+
+
 class TestCropExplicitNulls:
     """Lesson from QA Round 2: explicit null in JSON must return 422, not 500."""
 

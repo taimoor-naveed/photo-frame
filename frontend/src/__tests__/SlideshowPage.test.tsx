@@ -1111,10 +1111,15 @@ describe("SlideshowPage", () => {
     expect(fg.className).toContain("object-cover");
     expect(fg.className).not.toContain("object-contain");
     expect(fg.style.transform).toBe("scale(1.5)");
-    // object-position is converted from crop center to CSS percentage
-    // via cropToObjectPosition (not a 1:1 mapping)
-    expect(fg.style.objectPosition).toBeTruthy();
-    expect(fg.style.transformOrigin).toBeTruthy();
+    // object-position is converted from crop center (0.3, 0.2) via cropToObjectPosition.
+    // For an 800x600 image (aspect 1.333 < display aspect 1.707):
+    //   visFracX = 1.0/1.5 = 0.667, visFracY = (800/600)/(1024/600)/1.5 = 0.521
+    //   opX = (0.3 - 0.333) / (1 - 0.667) = clamped to 0
+    //   opY = (0.2 - 0.260) / (1 - 0.521) = clamped to 0
+    expect(fg.style.objectPosition).toMatch(/^\d+(\.\d+)?% \d+(\.\d+)?%$/);
+    expect(fg.style.transformOrigin).toMatch(/^\d+(\.\d+)?% \d+(\.\d+)?%$/);
+    // transformOrigin should match objectPosition
+    expect(fg.style.transformOrigin).toBe(fg.style.objectPosition);
   });
 
   it("uses object-contain with no transform for uncropped photo", async () => {

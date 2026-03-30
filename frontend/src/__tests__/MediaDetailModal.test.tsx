@@ -651,6 +651,75 @@ describe("MediaDetailModal", () => {
       globalThis.fetch = originalFetch;
     });
 
+    it("escape exits crop editing mode first, then closes modal on second press", () => {
+      const onClose = vi.fn();
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={onClose} onDelete={() => {}} />,
+      );
+      // Enter crop editing
+      fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+      expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+
+      // First Escape: exits crop mode, modal stays open
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: /add crop/i })).toBeInTheDocument();
+
+      // Second Escape: closes modal
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("clicking outside modal does not close it during crop editing", () => {
+      const onClose = vi.fn();
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={onClose} onDelete={() => {}} />,
+      );
+      // Enter crop editing
+      fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+
+      // Click on backdrop
+      fireEvent.click(screen.getByTestId("media-detail-modal"));
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("clicking outside modal closes it when not crop editing", () => {
+      const onClose = vi.fn();
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={onClose} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByTestId("media-detail-modal"));
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("shows Clearing... text while remove crop is in progress", async () => {
+      const originalFetch = globalThis.fetch;
+      let resolveRemove: (value: Response) => void;
+      globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+        if (typeof url === "string" && url.includes("/crop") && opts?.method === "DELETE") {
+          return new Promise<Response>((resolve) => { resolveRemove = resolve; });
+        }
+        return originalFetch(url, opts);
+      }) as typeof fetch;
+
+      const croppedPhoto = { ...mockPhoto, crop_x: 0.3, crop_y: 0.2, crop_scale: 1.5 };
+      render(
+        <MediaDetailModal media={croppedPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /remove crop/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/clearing/i)).toBeInTheDocument();
+      });
+
+      // Resolve the request
+      resolveRemove!(new Response(JSON.stringify(croppedPhoto), { status: 200 }));
+      await waitFor(() => {
+        expect(screen.queryByText(/clearing/i)).not.toBeInTheDocument();
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
     it("does not close editor when save fails (no optimistic UI)", async () => {
       const originalFetch = globalThis.fetch;
       globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {

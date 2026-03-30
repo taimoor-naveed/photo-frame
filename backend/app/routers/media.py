@@ -406,10 +406,16 @@ async def set_crop(
     media.crop_x = body.crop_x
     media.crop_y = body.crop_y
     media.crop_scale = body.crop_scale
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(media)
 
-    await manager.broadcast({"type": "media_updated", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
+    asyncio.create_task(
+        manager.broadcast({"type": "media_updated", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
+    )
 
     return media
 
@@ -422,14 +428,22 @@ async def remove_crop(
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
         raise HTTPException(404, "Media not found")
+    if media.media_type != "photo":
+        raise HTTPException(400, "Crop is only supported for photos")
 
     media.crop_x = None
     media.crop_y = None
     media.crop_scale = None
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(media)
 
-    await manager.broadcast({"type": "media_updated", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
+    asyncio.create_task(
+        manager.broadcast({"type": "media_updated", "payload": MediaOut.model_validate(media).model_dump(mode="json")})
+    )
 
     return media
 

@@ -118,6 +118,7 @@ export default function MediaDetailModal({
   const [cropEditing, setCropEditing] = useState(false);
   const [cropError, setCropError] = useState<string | null>(null);
   const [cropSaving, setCropSaving] = useState(false);
+  const [cropRemoving, setCropRemoving] = useState(false);
   const cropSaveRef = useRef<(() => void) | null>(null);
 
   // Reset image loaded state and crop state when media changes
@@ -126,6 +127,7 @@ export default function MediaDetailModal({
     setJumpError(null);
     setCropEditing(false);
     setCropError(null);
+    setCropRemoving(false);
   }, [media?.id]);
 
   // Body scroll lock
@@ -137,17 +139,23 @@ export default function MediaDetailModal({
     };
   }, [media]);
 
-  // Escape key closes modal (but not when ConfirmDialog is open)
+  // Escape key: exit crop editing first, then close modal
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!media) return;
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !confirmOpen) {
-        onClose();
+        if (cropEditing) {
+          setCropEditing(false);
+        } else {
+          onCloseRef.current();
+        }
       }
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [media, confirmOpen, onClose]);
+  }, [media, confirmOpen, cropEditing]);
 
   if (!media) return null;
 
@@ -170,10 +178,13 @@ export default function MediaDetailModal({
   const handleRemoveCrop = async () => {
     if (!media) return;
     setCropError(null);
+    setCropRemoving(true);
     try {
       await api.media.removeCrop(media.id);
     } catch {
       setCropError("Failed to remove crop");
+    } finally {
+      setCropRemoving(false);
     }
   };
   const jumpTitle = media.processing_status === "processing"
@@ -188,7 +199,7 @@ export default function MediaDetailModal({
       <div
         data-testid="media-detail-modal"
         className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        onClick={onClose}
+        onClick={() => { if (!cropEditing) onClose(); }}
       >
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
 
@@ -330,8 +341,8 @@ export default function MediaDetailModal({
                 imageWidth={media.width}
                 imageHeight={media.height}
                 initialCrop={
-                  media.crop_scale != null
-                    ? { crop_x: media.crop_x!, crop_y: media.crop_y!, crop_scale: media.crop_scale }
+                  media.crop_scale != null && media.crop_x != null && media.crop_y != null
+                    ? { crop_x: media.crop_x, crop_y: media.crop_y, crop_scale: media.crop_scale }
                     : null
                 }
                 saving={cropSaving}
@@ -461,10 +472,11 @@ export default function MediaDetailModal({
                   </button>
                   <button
                     onClick={handleRemoveCrop}
-                    className="px-4 py-1.5 min-h-[44px] rounded-lg text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm"
+                    disabled={cropRemoving}
+                    className="px-4 py-1.5 min-h-[44px] rounded-lg text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm disabled:opacity-50"
                     aria-label="Remove crop"
                   >
-                    Clear Crop
+                    {cropRemoving ? "Clearing..." : "Clear Crop"}
                   </button>
                 </>
               ) : (

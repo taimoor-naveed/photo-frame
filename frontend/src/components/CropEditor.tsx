@@ -143,8 +143,6 @@ export default function CropEditor({
       if (!layout) return { tx: newTx, ty: newTy, zoom: newZoom };
 
       const { imgW, imgH, cropW, cropH } = layout;
-      const scaledW = imgW * newZoom;
-      const scaledH = imgH * newZoom;
 
       // Min zoom: image must cover the crop rect
       const minZoomW = cropW / imgW;
@@ -265,7 +263,7 @@ export default function CropEditor({
     onSave({
       crop_x: Math.max(0, Math.min(1, cropCenterX)),
       crop_y: Math.max(0, Math.min(1, cropCenterY)),
-      crop_scale: Math.max(1, cropScale),
+      crop_scale: Math.max(1, Math.min(10, cropScale)),
     });
   }, [getLayout, onSave]);
 
