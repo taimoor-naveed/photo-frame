@@ -10,6 +10,8 @@
 | `GET`    | `/api/media/{id}`                 | Get media metadata                    |
 | `DELETE` | `/api/media/bulk`                 | Bulk delete media by IDs              |
 | `POST`   | `/api/media/slideshow/jump`       | Jump slideshow to specific media item |
+| `PUT`    | `/api/media/{id}/crop`            | Set crop region (photos only)         |
+| `DELETE` | `/api/media/{id}/crop`            | Remove crop region (photos only)      |
 | `DELETE` | `/api/media/{id}`                 | Delete media + all associated files   |
 | `GET`    | `/uploads/originals/{filename}`   | Serve full-size image/video           |
 | `GET`    | `/uploads/thumbnails/{filename}`  | Serve thumbnail                       |
@@ -28,6 +30,7 @@
 - `media_processing_progress` — payload: `{"id": <media_id>, "progress": 0-100}`
 - `media_processing_complete` — payload: full media object (with `processing_status: "ready"`)
 - `media_processing_error` — payload: `{"id": <media_id>}`
+- `media_updated` — payload: full media object (crop changed)
 - `slideshow_jump` — payload: `{"id": <media_id>}` (jump all slideshows to this media)
 - `settings_changed` — payload: full settings object
 
@@ -55,6 +58,9 @@ media:
   display_filename TEXT               -- display-optimized file (1024x600 max), NULL if within bounds
   content_hash  TEXT UNIQUE           -- SHA-256 for duplicate detection
   uploaded_at DATETIME NOT NULL       -- UTC
+  crop_x      REAL                    -- crop center X as fraction of image width (0-1), NULL if no crop
+  crop_y      REAL                    -- crop center Y as fraction of image height (0-1), NULL if no crop
+  crop_scale  REAL                    -- zoom level relative to "image covers crop rect" baseline (1-10), NULL if no crop
 
 settings:
   id                  INTEGER PRIMARY KEY DEFAULT 1
@@ -159,6 +165,43 @@ Gallery modal: `originalUrl` for photos, `modalVideoUrl` for videos. Slideshow: 
 
 ### Download
 Download button in modal header triggers native `<a download>` for the original file.
+
+### Photo Crop
+
+Crop allows users to define which region of a photo fills the slideshow display. No image regeneration — crop is applied via CSS transforms at render time.
+
+**Data model:** Three floats stored on the media row:
+- `crop_x` (0–1): horizontal center of the crop region as a fraction of image width
+- `crop_y` (0–1): vertical center of the crop region as a fraction of image height
+- `crop_scale` (1–10): zoom level relative to "image just covers crop rectangle" baseline. 1 = minimum zoom (full coverage), 10 = maximum zoom.
+
+All three are NULL when no crop is set. Videos cannot have crops.
+
+**Crop editor (gallery modal):**
+- iOS-style: full image behind a fixed 1024:600 crop rectangle, dimmed overlay outside
+- Drag to pan (Pointer Events API), pinch-to-zoom, mouse wheel zoom
+- Rule-of-thirds grid lines inside crop rectangle
+- "Set Crop" opens editor for uncropped photos; "Edit Crop" opens with existing crop pre-loaded
+- "Cancel" exits without saving; "Save Crop" persists via `PUT /api/media/{id}/crop`
+- "Clear Crop" removes crop via `DELETE /api/media/{id}/crop`
+- Escape exits crop editing (not the modal); backdrop click blocked during editing
+- Error banner on API failure; editor stays open on save failure (no optimistic UI)
+
+**Crop preview (gallery modal):**
+When a crop is set, the modal shows the full image with a bright "hole" where the crop rectangle is, dimmed everywhere else (via `box-shadow`).
+
+**Slideshow rendering:**
+Cropped photos render inside a 1024:600 aspect-ratio container:
+- `object-fit: cover` fills the container
+- `transform: scale(crop_scale)` zooms in
+- `object-position` computed from `crop_x`/`crop_y` via `cropToObjectPosition()` to align the crop center
+- `transform-origin` matches `object-position`
+- Blur background shows around edges on displays with different aspect ratios
+
+**API:**
+- `PUT /api/media/{id}/crop` — body: `{crop_x, crop_y, crop_scale}`. Returns updated media. Photos only (400 for videos).
+- `DELETE /api/media/{id}/crop` — clears all crop fields to NULL. Returns updated media. Photos only.
+- Both broadcast `media_updated` WebSocket event with full media payload.
 
 ## Display — Blur Background Effect
 

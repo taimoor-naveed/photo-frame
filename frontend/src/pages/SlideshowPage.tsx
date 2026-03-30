@@ -309,6 +309,20 @@ export default function SlideshowPage() {
           setSlideForward(true);
           goToSlideRef.current(idx);
         }
+      } else if (event.type === "media_updated") {
+        const updated = event.payload as unknown as Media;
+        setMediaList((prev) =>
+          prev.map((m) => (m.id === updated.id ? updated : m)),
+        );
+        setSlide((prev) => {
+          if (!prev.playlist.some((m) => m.id === updated.id)) return prev;
+          return {
+            ...prev,
+            playlist: prev.playlist.map((m) =>
+              m.id === updated.id ? updated : m,
+            ),
+          };
+        });
       }
     },
     [resetHideTimer],
@@ -513,6 +527,44 @@ interface SlideProps {
 
 const CSS_BLUR_CLASS = "absolute inset-0 w-full h-full object-cover scale-[1.2] blur-[30px] brightness-[0.7]";
 
+const DISPLAY_ASPECT = 1024 / 600;
+
+/**
+ * Convert a crop center (0-1 fraction of image) to the CSS `object-position` percentage
+ * needed for `object-fit: cover`.
+ *
+ * `object-position: P%` aligns the point at P% of the image with P% of the container.
+ * For cover, the visible center is: center = P * (1 - visFrac) + visFrac/2
+ * Solving for P: P = (center - visFrac/2) / (1 - visFrac)
+ */
+function cropToObjectPosition(
+  cropX: number, cropY: number, cropScale: number,
+  imageWidth: number, imageHeight: number,
+): { x: number; y: number } {
+  const imageAspect = imageWidth / imageHeight;
+
+  // Visible fraction of the image in each axis with object-fit:cover + scale
+  let visFracX: number, visFracY: number;
+  if (imageAspect > DISPLAY_ASPECT) {
+    visFracX = DISPLAY_ASPECT / imageAspect / cropScale;
+    visFracY = 1.0 / cropScale;
+  } else {
+    visFracX = 1.0 / cropScale;
+    visFracY = imageAspect / DISPLAY_ASPECT / cropScale;
+  }
+
+  // Convert center to object-position percentage
+  const toOP = (center: number, visFrac: number) => {
+    if (visFrac >= 1) return 0.5; // image smaller than container, center it
+    return (center - visFrac / 2) / (1 - visFrac);
+  };
+
+  return {
+    x: Math.max(0, Math.min(1, toOP(cropX, visFracX))),
+    y: Math.max(0, Math.min(1, toOP(cropY, visFracY))),
+  };
+}
+
 const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlideProps) {
   const src = displayUrl(media);
 
@@ -534,15 +586,48 @@ const Slide = memo(function Slide({ media, videoRef, onEnded, onError }: SlidePr
     );
   }
 
+  const hasCrop = media.crop_scale != null;
+
+  // Convert crop center → object-position for CSS
+  const op = hasCrop
+    ? cropToObjectPosition(
+        media.crop_x ?? 0.5, media.crop_y ?? 0.5, media.crop_scale!,
+        media.width, media.height,
+      )
+    : null;
+
   return (
     <>
       <img src={src} className={CSS_BLUR_CLASS} alt="" aria-hidden="true" />
-      <img
-        src={src}
-        data-media-id={media.id}
-        className="absolute inset-0 w-full h-full object-contain"
-        alt={media.original_name}
-      />
+      {hasCrop && op ? (
+        /* Cropped photo: render inside a 1024:600 box so it matches RPi display.
+           On RPi this fills the screen exactly. On other aspect ratios, blur shows around edges. */
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="relative overflow-hidden max-w-full max-h-full"
+            style={{ aspectRatio: "1024 / 600", width: "calc(min(100%, 100vh * 1024 / 600))" }}
+          >
+            <img
+              src={src}
+              data-media-id={media.id}
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{
+                objectPosition: `${op.x * 100}% ${op.y * 100}%`,
+                transform: `scale(${media.crop_scale})`,
+                transformOrigin: `${op.x * 100}% ${op.y * 100}%`,
+              }}
+              alt={media.original_name}
+            />
+          </div>
+        </div>
+      ) : (
+        <img
+          src={src}
+          data-media-id={media.id}
+          className="absolute inset-0 w-full h-full object-contain"
+          alt={media.original_name}
+        />
+      )}
     </>
   );
 });

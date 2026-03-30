@@ -7,7 +7,8 @@ Built for a Raspberry Pi 4 with a 1024x600 touchscreen, but works on any device 
 ## Features
 
 **Slideshow**
-- Fullscreen display with blur background effect — no black borders, no cropping
+- Fullscreen display with blur background effect — no black borders
+- Photo crop editor — define which region fills the screen (iOS-style drag/pinch, applied via CSS transforms, no image regeneration)
 - Crossfade, slide, or instant transitions
 - Videos auto-play muted; long videos wait to finish before advancing, short videos show first frame while waiting
 - Configurable interval (3s–60s) and transition type
@@ -18,7 +19,7 @@ Built for a Raspberry Pi 4 with a 1024x600 touchscreen, but works on any device 
 **Gallery**
 - Dark editorial theme ("Gallery After Dark") with frosted glass effects
 - Responsive photo grid with click-to-open lightbox modal
-- Lightbox shows full-size media, metadata (dimensions, file size, duration, upload date), download button, delete with confirmation
+- Lightbox shows full-size media, metadata (dimensions, file size, duration, upload date), download button, crop editor (photos), delete with confirmation
 - Multi-select bulk deletion via long press
 - Real-time processing indicator for videos (circular progress)
 
@@ -177,6 +178,8 @@ All tests run inside Docker — no host dependencies needed.
 | `DELETE` | `/api/media/{id}` | Delete media + files |
 | `DELETE` | `/api/media/bulk` | Bulk delete by IDs |
 | `POST` | `/api/media/slideshow/jump` | Jump slideshow to specific media |
+| `PUT` | `/api/media/{id}/crop` | Set photo crop region |
+| `DELETE` | `/api/media/{id}/crop` | Remove photo crop region |
 | `GET` | `/api/settings` | Get slideshow settings |
 | `PUT` | `/api/settings` | Update settings (partial) |
 | `WS` | `/ws` | Real-time events |
@@ -190,6 +193,7 @@ All tests run inside Docker — no host dependencies needed.
 | `media_processing_complete` | Server -> Client | Video transcode finished |
 | `media_processing_progress` | Server -> Client | Transcode/scaling progress (0-100%) |
 | `media_processing_error` | Server -> Client | Processing failed |
+| `media_updated` | Server -> Client | Media metadata changed (e.g., crop) |
 | `settings_changed` | Server -> Client | Settings updated |
 | `slideshow_jump` | Server -> Client | Jump to specific media |
 

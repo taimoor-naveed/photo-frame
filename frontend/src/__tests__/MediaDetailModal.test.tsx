@@ -18,6 +18,9 @@ const mockPhoto: Media = {
   processing_status: "ready",
   content_hash: "abc123",
   uploaded_at: "2026-01-15T14:30:00",
+  crop_x: null,
+  crop_y: null,
+  crop_scale: null,
 };
 
 const mockVideo: Media = {
@@ -552,6 +555,193 @@ describe("MediaDetailModal", () => {
     );
     const jumpBtn = screen.getByLabelText("Show in slideshow");
     expect(jumpBtn.className).toContain("focus:outline-none");
+  });
+
+  // ─── Crop Controls ──────────────────────────────────────
+
+  describe("Crop controls", () => {
+    it("shows Add Crop button for photos without crop", () => {
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      expect(screen.getByRole("button", { name: /add crop/i })).toBeInTheDocument();
+    });
+
+    it("does not show crop button for videos", () => {
+      render(
+        <MediaDetailModal media={mockVideo} onClose={() => {}} onDelete={() => {}} />,
+      );
+      expect(screen.queryByRole("button", { name: /add crop/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /edit crop/i })).not.toBeInTheDocument();
+    });
+
+    it("shows Edit Crop and Remove Crop buttons when crop exists", () => {
+      const croppedPhoto = { ...mockPhoto, crop_x: 0.3, crop_y: 0.2, crop_scale: 1.5 };
+      render(
+        <MediaDetailModal media={croppedPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      expect(screen.getByRole("button", { name: /edit crop/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /remove crop/i })).toBeInTheDocument();
+    });
+
+    it("shows dimmed overlay when photo has crop", () => {
+      const croppedPhoto = { ...mockPhoto, crop_x: 0.3, crop_y: 0.2, crop_scale: 1.5 };
+      render(
+        <MediaDetailModal media={croppedPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      expect(screen.getByTestId("crop-overlay")).toBeInTheDocument();
+    });
+
+    it("opens crop editor when Add Crop is clicked", () => {
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+      expect(screen.getByRole("button", { name: /save/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+    });
+
+    it("does not show crop buttons for processing photos", () => {
+      const processingPhoto = { ...mockPhoto, processing_status: "processing" as const };
+      render(
+        <MediaDetailModal media={processingPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      expect(screen.queryByRole("button", { name: /add crop/i })).not.toBeInTheDocument();
+    });
+
+    it("shows error banner when save crop API fails", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+        if (typeof url === "string" && url.includes("/crop") && opts?.method === "PUT") {
+          return Promise.resolve(new Response("Internal Server Error", { status: 500 }));
+        }
+        return originalFetch(url, opts);
+      }) as typeof fetch;
+
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+      fireEvent.click(screen.getByRole("button", { name: /save/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/failed to save crop/i)).toBeInTheDocument();
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it("shows error banner when remove crop API fails", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+        if (typeof url === "string" && url.includes("/crop") && opts?.method === "DELETE") {
+          return Promise.resolve(new Response("Internal Server Error", { status: 500 }));
+        }
+        return originalFetch(url, opts);
+      }) as typeof fetch;
+
+      const croppedPhoto = { ...mockPhoto, crop_x: 0.3, crop_y: 0.2, crop_scale: 1.5 };
+      render(
+        <MediaDetailModal media={croppedPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /remove crop/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/failed to remove crop/i)).toBeInTheDocument();
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it("escape exits crop editing mode first, then closes modal on second press", () => {
+      const onClose = vi.fn();
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={onClose} onDelete={() => {}} />,
+      );
+      // Enter crop editing
+      fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+      expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+
+      // First Escape: exits crop mode, modal stays open
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: /add crop/i })).toBeInTheDocument();
+
+      // Second Escape: closes modal
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("clicking outside modal does not close it during crop editing", () => {
+      const onClose = vi.fn();
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={onClose} onDelete={() => {}} />,
+      );
+      // Enter crop editing
+      fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+
+      // Click on backdrop
+      fireEvent.click(screen.getByTestId("media-detail-modal"));
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("clicking outside modal closes it when not crop editing", () => {
+      const onClose = vi.fn();
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={onClose} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByTestId("media-detail-modal"));
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("shows Clearing... text while remove crop is in progress", async () => {
+      const originalFetch = globalThis.fetch;
+      let resolveRemove: (value: Response) => void;
+      globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+        if (typeof url === "string" && url.includes("/crop") && opts?.method === "DELETE") {
+          return new Promise<Response>((resolve) => { resolveRemove = resolve; });
+        }
+        return originalFetch(url, opts);
+      }) as typeof fetch;
+
+      const croppedPhoto = { ...mockPhoto, crop_x: 0.3, crop_y: 0.2, crop_scale: 1.5 };
+      render(
+        <MediaDetailModal media={croppedPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /remove crop/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/clearing/i)).toBeInTheDocument();
+      });
+
+      // Resolve the request
+      resolveRemove!(new Response(JSON.stringify(croppedPhoto), { status: 200 }));
+      await waitFor(() => {
+        expect(screen.queryByText(/clearing/i)).not.toBeInTheDocument();
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it("does not close editor when save fails (no optimistic UI)", async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn((url: string, opts?: RequestInit) => {
+        if (typeof url === "string" && url.includes("/crop") && opts?.method === "PUT") {
+          return Promise.resolve(new Response("Internal Server Error", { status: 500 }));
+        }
+        return originalFetch(url, opts);
+      }) as typeof fetch;
+
+      render(
+        <MediaDetailModal media={mockPhoto} onClose={() => {}} onDelete={() => {}} />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /add crop/i }));
+      fireEvent.click(screen.getByRole("button", { name: /save/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/failed to save crop/i)).toBeInTheDocument();
+      });
+      // Editor should still be open
+      expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+
+      globalThis.fetch = originalFetch;
+    });
   });
 
   it("shows processing overlay for processing photo", () => {

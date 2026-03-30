@@ -18,6 +18,9 @@ function makeMedia(id: number): Media {
     processing_status: "ready" as const,
     content_hash: `hash${id}`,
     uploaded_at: `2026-01-01T00:00:00`,
+    crop_x: null,
+    crop_y: null,
+    crop_scale: null,
   };
 }
 
@@ -446,6 +449,71 @@ describe("usePhotos", () => {
     expect(result.current.photos).toHaveLength(1);
     expect(result.current.photos[0].id).toBe(99);
     expect(result.current.total).toBe(1);
+  });
+
+  it("WS media_updated updates photo in-place without refetching", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockList,
+    } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.photos[0].crop_x).toBeNull();
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    fetchSpy.mockClear();
+
+    const updatedMedia: Media = {
+      ...makeMedia(1),
+      crop_x: 0.1,
+      crop_y: 0.2,
+      crop_scale: 1.5,
+    };
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_updated",
+        payload: updatedMedia,
+      });
+    });
+
+    // Photo should be updated in-place
+    expect(result.current.photos[0].crop_x).toBe(0.1);
+    expect(result.current.photos[0].crop_y).toBe(0.2);
+    expect(result.current.photos[0].crop_scale).toBe(1.5);
+
+    // No refetch should have occurred
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("WS media_updated for unknown id does not change photos", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockList,
+    } as Response);
+
+    const { result } = renderHook(() => usePhotos());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.photos).toHaveLength(1);
+
+    // Flush WS creation
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_updated",
+        payload: { ...makeMedia(999), crop_x: 0.5 },
+      });
+    });
+
+    // Photos array should be unchanged — ID 999 not in list
+    expect(result.current.photos).toHaveLength(1);
+    expect(result.current.photos[0].id).toBe(1);
+    expect(result.current.photos[0].crop_x).toBeNull();
   });
 
   it("stale fetchPhotos error does not overwrite fresh data", async () => {

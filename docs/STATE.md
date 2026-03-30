@@ -13,10 +13,10 @@ All features merged to `main` and deployed. Slideshow running on Pi kiosk, backe
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 61 | All passing |
-| Frontend (vitest) | 178 | All passing |
-| E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~439** | **Green** |
+| Backend (pytest) | 214 | All passing |
+| Frontend (vitest) | 203 | All passing |
+| E2E (playwright) | ~240 (120 tests × 2 viewports, 3 skipped) | Passing |
+| **Total** | **~657** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
@@ -32,12 +32,14 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 - **Smart transcoding**: only non-browser codecs (HEVC, ProRes) get transcoded; H.264/VP8/VP9/AV1 kept as-is
 - **Progress tracking**: ffmpeg `-progress pipe:1` parsed in real-time, broadcast via WebSocket
 - **Duplicate detection**: SHA-256 content hash, returns existing item if duplicate
-- **WebSocket**: real-time events for media_added, media_deleted, media_processing_complete, media_processing_progress, settings_changed, slideshow_jump
+- **WebSocket**: real-time events for media_added, media_deleted, media_processing_complete, media_processing_progress, media_updated, settings_changed, slideshow_jump
+- **Crop API**: `PUT /api/media/{id}/crop` (set crop), `DELETE /api/media/{id}/crop` (remove crop). Photos only — videos rejected. Broadcasts `media_updated` WS event.
 - **File serving**: originals, thumbnails, display-optimized files via FileResponse
 
 ### Frontend
 - **Gallery**: responsive grid with infinite scroll pagination (50 per page), click-to-open detail modal (lightbox), processing overlay (iPhone-style circular progress), error state, multi-select bulk deletion (long-press to select)
-- **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), show-in-slideshow (cross-device jump via WS), download, delete with confirmation, keyboard/backdrop dismiss
+- **Media Detail Modal**: full-size photo/video lightbox with metadata (dimensions, file size, duration, upload date), show-in-slideshow (cross-device jump via WS), download, delete with confirmation, keyboard/backdrop dismiss, crop editor for photos
+- **Photo Crop**: iOS-style crop editor in gallery modal — drag/pinch to position, fixed 1024:600 crop rectangle with rule-of-thirds grid, dimmed overlay. Crop preview shown in modal when set. Slideshow renders crops via CSS `object-position` + `transform: scale()`. Crop data stored as three floats (`crop_x`, `crop_y`, `crop_scale`) — no image regeneration. WebSocket `media_updated` broadcasts crop changes in real-time.
 - **Upload**: drag-and-drop + file picker, progress bar, success state with navigation
 - **Settings**: interval slider (3-60s), transition type segmented control, instant save
 - **Slideshow**: fullscreen with blur background effect, crossfade/slide/none transitions, auto-advance timer
@@ -73,6 +75,24 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 ---
 
 ## Recent Changes
+
+### Photo Crop (2026-03-30) — branch: `feature/photo-crop`
+
+Added crop functionality for photos. Users can define a crop region in the gallery modal, and the slideshow renders just the cropped area filling the display.
+
+**Backend:**
+- **Model**: Three nullable float columns on media table: `crop_x`, `crop_y`, `crop_scale`
+- **API**: `PUT /api/media/{id}/crop` (set), `DELETE /api/media/{id}/crop` (remove). Photos only — videos rejected with 400. Path parameter validated (`ge=1, le=2^63-1`).
+- **Schema**: `CropRequest` with `Field(ge=0, le=1)` for x/y, `Field(ge=1, le=10)` for scale. Explicit null rejection via model validator.
+- **WS**: Both endpoints broadcast `media_updated` via `asyncio.create_task()` (fire-and-forget, consistent with upload endpoints).
+
+**Frontend:**
+- **CropEditor component**: iOS-style editor — full image behind a fixed 1024:600 crop rectangle with dimmed overlay. Drag to pan (Pointer Events API), pinch to zoom, mouse wheel zoom. Rule-of-thirds grid. Saves as `(crop_x, crop_y, crop_scale)` fractions.
+- **MediaDetailModal**: Crop action bar below image — "Set Crop" / "Edit Crop" + "Clear Crop" buttons. Crop preview overlay (hole-in-dimmed-overlay) when crop is set. Escape exits crop mode first, then closes modal. Backdrop click blocked during editing.
+- **SlideshowPage**: Cropped photos render inside a 1024:600 aspect-ratio container with `object-fit: cover` + CSS `scale()` + computed `object-position`. Blur background shows around edges on non-matching displays.
+- **Hooks**: `usePhotos` handles `media_updated` WS event to update crop data in-place. `useWebSocket` declares the event type.
+
+**Tests**: 15 new backend tests (integration + unit), 10 new frontend tests (crop controls, escape behavior, click-outside protection, error handling, crop rendering).
 
 ### WebSocket Reconnect-After-Unmount Fix (2026-03-15)
 

@@ -25,6 +25,9 @@ function makePhoto(id: number, name?: string): Media {
     processing_status: "ready" as const,
     content_hash: `hash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
+    crop_x: null,
+    crop_y: null,
+    crop_scale: null,
   };
 }
 
@@ -48,6 +51,9 @@ function makeVideo(
     processing_status: status,
     content_hash: `vhash${id}`,
     uploaded_at: `2026-01-0${id}T00:00:00`,
+    crop_x: null,
+    crop_y: null,
+    crop_scale: null,
   };
 }
 
@@ -569,6 +575,73 @@ describe("SlideshowPage", () => {
     expect(ids).toEqual(new Set([1, 2]));
   });
 
+  // ─── WebSocket: Media Updated ────────────────────────────
+
+  it("updates media in-place in playlist via WS media_updated", async () => {
+    const photo = makePhoto(1);
+    mockFetch([photo]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    expect(getCurrentMediaId()).toBe(1);
+
+    // Verify initial state: no crop
+    const fgBefore = document.querySelector("[data-media-id='1']") as HTMLImageElement;
+    expect(fgBefore.src).toContain("/uploads/originals/photo1.jpg");
+
+    const ws = getLatestWs();
+    const updatedPhoto: Media = {
+      ...photo,
+      crop_x: 0.1,
+      crop_y: 0.2,
+      crop_scale: 1.5,
+      display_filename: "display_cropped.jpg",
+    };
+
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_updated",
+        payload: updatedPhoto,
+      });
+    });
+
+    // Media id should remain the same — updated in-place, not removed
+    expect(getCurrentMediaId()).toBe(1);
+
+    // Playlist count should be unchanged (no duplication)
+    const ids = await collectAllMediaIds(1);
+    expect(ids).toEqual(new Set([1]));
+  });
+
+  it("media_updated for item not in playlist does not change playlist", async () => {
+    mockFetch([makePhoto(1), makePhoto(2)]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+
+    const ws = getLatestWs();
+    await act(async () => {
+      ws.simulateMessage({
+        type: "media_updated",
+        payload: { ...makePhoto(999), crop_x: 0.1, crop_y: 0.2, crop_scale: 1.5 },
+      });
+    });
+
+    // Playlist should be unchanged — only ids 1 and 2
+    const ids = await collectAllMediaIds(2);
+    expect(ids).toEqual(new Set([1, 2]));
+  });
+
   // ─── Targeted Bug-Class Tests ────────────────────────────
 
   it("empty to first photo via WS: displays immediately with correct ID", async () => {
@@ -1015,5 +1088,55 @@ describe("SlideshowPage", () => {
       );
     });
     expect(getCurrentMediaId()).toBe(secondId);
+  });
+
+  it("applies crop CSS transform for cropped photo", async () => {
+    const croppedPhoto = {
+      ...makePhoto(1),
+      crop_x: 0.3,
+      crop_y: 0.2,
+      crop_scale: 1.5,
+    };
+    mockFetch([croppedPhoto]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const fg = document.querySelector("[data-media-id='1']") as HTMLImageElement;
+    expect(fg).toBeTruthy();
+    expect(fg.className).toContain("object-cover");
+    expect(fg.className).not.toContain("object-contain");
+    expect(fg.style.transform).toBe("scale(1.5)");
+    // object-position is converted from crop center (0.3, 0.2) via cropToObjectPosition.
+    // For an 800x600 image (aspect 1.333 < display aspect 1.707):
+    //   visFracX = 1.0/1.5 = 0.667, visFracY = (800/600)/(1024/600)/1.5 = 0.521
+    //   opX = (0.3 - 0.333) / (1 - 0.667) = clamped to 0
+    //   opY = (0.2 - 0.260) / (1 - 0.521) = clamped to 0
+    expect(fg.style.objectPosition).toMatch(/^\d+(\.\d+)?% \d+(\.\d+)?%$/);
+    expect(fg.style.transformOrigin).toMatch(/^\d+(\.\d+)?% \d+(\.\d+)?%$/);
+    // transformOrigin should match objectPosition
+    expect(fg.style.transformOrigin).toBe(fg.style.objectPosition);
+  });
+
+  it("uses object-contain with no transform for uncropped photo", async () => {
+    mockFetch([makePhoto(1)]);
+
+    render(
+      <MemoryRouter>
+        <SlideshowPage />
+      </MemoryRouter>,
+    );
+
+    await waitForSlideshow();
+    const fg = document.querySelector("[data-media-id='1']") as HTMLImageElement;
+    expect(fg).toBeTruthy();
+    expect(fg.className).toContain("object-contain");
+    expect(fg.className).not.toContain("object-cover");
+    expect(fg.style.transform).toBe("");
+    expect(fg.style.objectPosition).toBe("");
   });
 });

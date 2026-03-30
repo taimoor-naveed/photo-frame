@@ -7,6 +7,7 @@ export interface WsEvent {
     | "media_processing_complete"
     | "media_processing_error"
     | "media_processing_progress"
+    | "media_updated"
     | "settings_changed"
     | "slideshow_jump";
   payload: Record<string, unknown>;

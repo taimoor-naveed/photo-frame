@@ -16,6 +16,9 @@ export interface Media {
   processing_progress?: number; // 0-100, only during transcoding
   content_hash: string | null;
   uploaded_at: string;
+  crop_x: number | null;
+  crop_y: number | null;
+  crop_scale: number | null;
 }
 
 export interface MediaList {
@@ -112,6 +115,16 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
+    },
+    setCrop(id: number, crop: { crop_x: number; crop_y: number; crop_scale: number }): Promise<Media> {
+      return request(`/media/${id}/crop`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(crop),
+      });
+    },
+    removeCrop(id: number): Promise<Media> {
+      return request(`/media/${id}/crop`, { method: "DELETE" });
     },
   },
   slideshow: {

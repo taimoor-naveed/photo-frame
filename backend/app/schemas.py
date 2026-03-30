@@ -19,8 +19,25 @@ class MediaOut(BaseModel):
     processing_status: str = "ready"
     content_hash: str | None = None
     uploaded_at: datetime
+    crop_x: float | None = None
+    crop_y: float | None = None
+    crop_scale: float | None = None
 
     model_config = {"from_attributes": True}
+
+
+class CropRequest(BaseModel):
+    crop_x: float = Field(ge=0, le=1)
+    crop_y: float = Field(ge=0, le=1)
+    crop_scale: float = Field(ge=1, le=10)
+
+    @model_validator(mode="after")
+    def reject_explicit_nulls(self):
+        """Reject explicit null values — None is only valid as 'field not sent'."""
+        for field_name in self.model_fields_set:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
 
 
 class MediaListOut(BaseModel):

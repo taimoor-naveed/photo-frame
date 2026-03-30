@@ -83,6 +83,11 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **Wrap external tool calls in try/except.** Pillow `Image.open()`, ffprobe, ffmpeg — any call to an external library/process that handles user data must be wrapped. Unhandled exceptions from corrupt input = 500 = bug.
 - **Clean up on failure.** If a file is written to disk before validation fails, delete it. Orphaned files with no DB record waste disk and confuse debugging.
 
+### Verify visually during implementation, not after
+- **After building any UI component, verify it in a real browser with Playwright before moving to the next task.** Vitest/RTL runs in jsdom which has no layout engine, no CSS rendering, and no real pointer events. If the feature involves CSS transforms, layout-dependent positioning, touch/gesture interactions, or animations, jsdom tests only prove internal consistency — not that it actually works. Run an ad-hoc Playwright script to confirm.
+- **The implementation loop is: build → Playwright verify → fix → next task.** Don't batch all visual QA into a final step. Bugs in early components cascade into later ones, turning one fix into a chain of fixes.
+- **For math-heavy rendering, assert computed styles against known inputs.** Set specific values via the API, then use Playwright to read `element.style` or `getComputedStyle()` and assert they match expected values. Don't rely on screenshots or eyeballing.
+
 ### Test quality standards
 - **Assert identity, not existence.** Never write `expect(items.length).toBeGreaterThan(0)`. Always verify *which* item is shown, not just *that something* rendered. Use `data-media-id`, `data-testid`, or specific field values.
 - **Cross-boundary integration tests are mandatory.** When adding a backend event or API change, write at least one test that sends a real message from the backend and asserts the frontend receives it with correct field names. TypeScript `as` casts hide mismatches — don't rely on them at system boundaries.
@@ -112,6 +117,7 @@ docs/              # SPEC.md (contract), STATE.md (progress)
 - **No DB record fixtures**: `conftest.py` has `sample_jpeg`/`sample_video` (raw bytes) but no `sample_photo` (DB record). Upload via API in tests to create records.
 - **Playwright `toBeVisible()` vs `toBeInViewport()`**: CSS `translate-y-full` hides elements off-screen but they're still "visible" to Playwright. Use `not.toBeInViewport()` for overlay hide assertions.
 - **H.264 in headless Chromium**: Does not play. Use VP8/WebM (`ffmpeg -c:v libvpx`) for test videos.
+- **jsdom has no layout engine**: `clientWidth`/`clientHeight` are always 0 unless mocked. Tests depending on element dimensions (drag interactions, resize-dependent layouts, intersection observers) need mocked layout in Vitest *and* real-browser verification via Playwright. Mocked layout proves the math is self-consistent, Playwright proves it actually renders correctly.
 - **WebSocket event format**: Backend sends `{"type": ..., "payload": ...}` to match frontend `WsEvent` interface. Any mismatch is silent (TypeScript `as` cast swallows it).
 - **File input clearing**: Some browsers invalidate `File` objects when `input.value = ""` — copy files to array first.
 - **StrictMode double-fetch**: React 19 StrictMode double-invokes effects, causing duplicate fetches. Use refs (e.g. `initialBuildDone`) to guard one-time operations.
