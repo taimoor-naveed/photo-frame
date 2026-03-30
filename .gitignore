@@ -48,3 +48,4 @@ backend/data/
 *.db-journal
 .claude/
 .worktrees/
+.superpowers/

@@ -181,6 +181,17 @@ Log files live on the Pi at `/home/pi/logs/` (persist across reboots, rotated da
 3. `grep -E '\[Slideshow\]|\[WS\]' /home/pi/logs/chromium.log | tail -50` — last JS events before freeze
 4. `dmesg | grep -i 'oom\|killed'` — check for OOM kills
 
+**What to look for in the logs:**
+| Symptom | Log signal | Likely cause |
+|---------|-----------|--------------|
+| Slideshow stopped advancing | Last `[Slideshow] advance` or `timer started` is old, no new entries | Timer died — JS renderer frozen or effect cleanup bug |
+| WS dead | `[WS] disconnected` with no subsequent `[WS] connected` | Backend down, network issue, or Chromium renderer frozen |
+| Page went background | `[Slideshow] visibility: hidden` with no `visible` after | Chromium tab lost focus or compositor issue |
+| Stuck on video | `[Slideshow] waiting for video to end` with no `advance` after | Video never fires `ended` event — codec issue or decode hang |
+| Video skipping | `[Slideshow] video error on media_id=X, skipping` | Unplayable video (wrong codec, corrupt file) |
+| Fetch loop | Repeated `[Slideshow] fetch failed, retrying in 5s` | Backend unreachable — check `system-health.log` backend status |
+| WS reconnect storm | Rapid `[WS] disconnected` → `connecting` → `disconnected` | Backend WS endpoint crashing or network flapping |
+
 **Config locations on Pi:**
 - Logrotate: `/etc/logrotate.d/photoframe` (from `scripts/pi/photoframe-logrotate.conf`)
 - Health check: `/home/pi/scripts/health-check.sh` (cron: `*/5 * * * *`)
