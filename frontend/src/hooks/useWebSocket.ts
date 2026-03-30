@@ -29,20 +29,23 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    console.log("[WS] connecting...");
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
+      console.log("[WS] connected");
       setConnected(true);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as WsEvent;
+        console.log("[WS] event:", data.type);
         onEventRef.current?.(data);
       } catch {
-        // Ignore non-JSON messages
+        console.error("[WS] failed to parse message:", event.data);
       }
     };
 
@@ -50,8 +53,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       setConnected(false);
       wsRef.current = null;
       if (!isShuttingDown.current) {
+        console.warn("[WS] disconnected, reconnecting in 2s");
         clearTimeout(reconnectTimer.current);
         reconnectTimer.current = setTimeout(connect, 2000);
+      } else {
+        console.log("[WS] disconnected (shutdown)");
       }
     };
 
