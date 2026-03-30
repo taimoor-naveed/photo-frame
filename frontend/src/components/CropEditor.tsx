@@ -14,6 +14,7 @@ interface CropEditorProps {
   imageHeight: number;
   initialCrop: CropData | null;
   saving?: boolean;
+  saveRef?: React.MutableRefObject<(() => void) | null>;
   onSave: (crop: CropData) => void;
   onCancel: () => void;
 }
@@ -34,6 +35,7 @@ export default function CropEditor({
   imageHeight,
   initialCrop,
   saving = false,
+  saveRef,
   onSave,
   onCancel,
 }: CropEditorProps) {
@@ -242,6 +244,7 @@ export default function CropEditor({
   );
 
   // ─── Save: convert pixel transform → crop fractions ────────────────
+  // Expose save function to parent via ref
   const handleSave = useCallback(() => {
     const layout = getLayout();
     if (!layout) return;
@@ -266,13 +269,16 @@ export default function CropEditor({
     });
   }, [getLayout, onSave]);
 
+  // Expose save to parent via ref (so parent's bar can trigger save)
+  if (saveRef) saveRef.current = handleSave;
+
   // ─── Render ────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full w-full">
-      {/* Image + overlay area */}
+    <div className="h-full w-full">
+      {/* Image + overlay area — fills entire editor space, controls are in the parent */}
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 relative bg-black overflow-hidden"
+        className="relative w-full h-full bg-black overflow-hidden"
         style={{ touchAction: "none" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -323,27 +329,6 @@ export default function CropEditor({
             <div className="absolute top-1/3 left-0 right-0 h-px bg-white/20" />
             <div className="absolute top-2/3 left-0 right-0 h-px bg-white/20" />
           </div>
-        </div>
-      </div>
-
-      {/* Controls bar */}
-      <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-white/[0.06] bg-surface">
-        <div className="flex gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-white hover:bg-white/10 transition-colors text-sm"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 min-h-[44px] rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
         </div>
       </div>
     </div>

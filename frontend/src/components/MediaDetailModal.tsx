@@ -118,6 +118,7 @@ export default function MediaDetailModal({
   const [cropEditing, setCropEditing] = useState(false);
   const [cropError, setCropError] = useState<string | null>(null);
   const [cropSaving, setCropSaving] = useState(false);
+  const cropSaveRef = useRef<(() => void) | null>(null);
 
   // Reset image loaded state and crop state when media changes
   useEffect(() => {
@@ -242,42 +243,6 @@ export default function MediaDetailModal({
                   />
                 </svg>
               </button>
-              {media.media_type === "photo" && isReady && !cropEditing && (
-                media.crop_scale != null ? (
-                  <>
-                    <button
-                      onClick={() => setCropEditing(true)}
-                      className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors"
-                      aria-label="Edit crop"
-                    >
-                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h10v10M7 17V7h10" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h2M7 3v2M17 21v-2M21 17h-2" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={handleRemoveCrop}
-                      className="rounded-lg p-2 text-warm-gray hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                      aria-label="Remove crop"
-                    >
-                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setCropEditing(true)}
-                    className="rounded-lg p-2 text-warm-gray hover:text-warm-white hover:bg-white/[0.06] transition-colors"
-                    aria-label="Add crop"
-                  >
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h10v10M7 17V7h10" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h2M7 3v2M17 21v-2M21 17h-2" />
-                    </svg>
-                  </button>
-                )
-              )}
               <a
                 href={originalUrl(media)}
                 download={media.original_name}
@@ -370,6 +335,7 @@ export default function MediaDetailModal({
                     : null
                 }
                 saving={cropSaving}
+                saveRef={cropSaveRef}
                 onSave={handleSaveCrop}
                 onCancel={() => setCropEditing(false)}
               />
@@ -459,6 +425,56 @@ export default function MediaDetailModal({
                     </>
                   )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Crop action bar — below image, above metadata */}
+          {media.media_type === "photo" && isReady && (
+            <div className="flex items-center justify-center gap-2 px-5 py-2 border-t border-white/[0.06]">
+              {cropEditing ? (
+                <>
+                  <button
+                    onClick={() => setCropEditing(false)}
+                    className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-gray hover:text-warm-white hover:bg-white/10 transition-colors text-xs"
+                    aria-label="Cancel"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => cropSaveRef.current?.()}
+                    disabled={cropSaving}
+                    className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-gray hover:text-warm-white hover:bg-white/10 transition-colors text-xs disabled:opacity-50"
+                    aria-label="Save crop"
+                  >
+                    {cropSaving ? "Saving..." : "Save Crop"}
+                  </button>
+                </>
+              ) : media.crop_scale != null ? (
+                <>
+                  <button
+                    onClick={() => setCropEditing(true)}
+                    className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-gray hover:text-warm-white hover:bg-white/10 transition-colors text-xs"
+                    aria-label="Edit crop"
+                  >
+                    Edit Crop
+                  </button>
+                  <button
+                    onClick={handleRemoveCrop}
+                    className="px-4 py-1.5 min-h-[44px] rounded-lg text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-colors text-xs"
+                    aria-label="Remove crop"
+                  >
+                    Clear Crop
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setCropEditing(true)}
+                  className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-gray hover:text-warm-white hover:bg-white/10 transition-colors text-xs"
+                  aria-label="Add crop"
+                >
+                  Set Crop
+                </button>
               )}
             </div>
           )}

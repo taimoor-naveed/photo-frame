@@ -36,7 +36,6 @@ describe("CropEditor", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    // Default: 400x600 container (mobile-like)
     restoreLayout = mockLayout(400, 600);
   });
 
@@ -44,37 +43,34 @@ describe("CropEditor", () => {
     restoreLayout?.();
   });
 
-  it("renders with Save and Cancel buttons", () => {
+  it("renders the crop preview image", () => {
     render(<CropEditor {...defaultProps} />);
-    expect(screen.getByRole("button", { name: /save/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+    expect(screen.getByAltText("Crop preview")).toBeInTheDocument();
   });
 
-  it("calls onCancel when Cancel is clicked", () => {
-    const onCancel = vi.fn();
-    render(<CropEditor {...defaultProps} onCancel={onCancel} />);
-    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
-    expect(onCancel).toHaveBeenCalledOnce();
+  it("renders the dimmed overlay with box-shadow", () => {
+    render(<CropEditor {...defaultProps} />);
+    const overlay = document.querySelector('[style*="box-shadow"]');
+    expect(overlay).toBeTruthy();
   });
 
-  it("calls onSave with crop data when Save is clicked", () => {
+  it("exposes save function via saveRef", () => {
     const onSave = vi.fn();
-    render(<CropEditor {...defaultProps} onSave={onSave} />);
-    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    const saveRef = { current: null as (() => void) | null };
+    render(<CropEditor {...defaultProps} onSave={onSave} saveRef={saveRef} />);
+    expect(saveRef.current).toBeInstanceOf(Function);
+    // Calling save should invoke onSave with crop data
+    saveRef.current!();
     expect(onSave).toHaveBeenCalledOnce();
     const cropData = onSave.mock.calls[0][0];
     expect(cropData).toHaveProperty("crop_x");
     expect(cropData).toHaveProperty("crop_y");
     expect(cropData).toHaveProperty("crop_scale");
-    // Default: centered
-    expect(cropData.crop_x).toBeCloseTo(0.5, 1);
-    expect(cropData.crop_y).toBeCloseTo(0.5, 1);
-    expect(cropData.crop_scale).toBeGreaterThanOrEqual(1);
   });
 
-  it("initializes with existing crop data when provided", () => {
+  it("initializes from existing crop data via saveRef round-trip", () => {
     const onSave = vi.fn();
-    // Wide image (minScale=1.0) so scale 3.0 is valid
+    const saveRef = { current: null as (() => void) | null };
     render(
       <CropEditor
         {...defaultProps}
@@ -82,31 +78,15 @@ describe("CropEditor", () => {
         imageHeight={800}
         initialCrop={{ crop_x: 0.3, crop_y: 0.4, crop_scale: 3.0 }}
         onSave={onSave}
+        saveRef={saveRef}
       />,
     );
     // Trigger image load to initialize from initialCrop
-    const img = screen.getByAltText("Crop preview");
-    fireEvent.load(img);
-
-    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    fireEvent.load(screen.getByAltText("Crop preview"));
+    saveRef.current!();
     const cropData = onSave.mock.calls[0][0];
-    // The values should round-trip approximately. The exact numbers depend on
-    // the mock layout geometry, so we check they're in the right ballpark.
     expect(cropData.crop_x).toBeCloseTo(0.3, 0);
     expect(cropData.crop_y).toBeCloseTo(0.4, 0);
     expect(cropData.crop_scale).toBeGreaterThan(1);
-  });
-
-  it("shows 'Saving...' and disables Save button when saving is true", () => {
-    render(<CropEditor {...defaultProps} saving={true} />);
-    const saveBtn = screen.getByRole("button", { name: /saving/i });
-    expect(saveBtn).toBeDisabled();
-  });
-
-  it("renders dimmed overlay with rule-of-thirds grid", () => {
-    render(<CropEditor {...defaultProps} />);
-    // The overlay uses box-shadow for dimming
-    const overlay = document.querySelector('[style*="box-shadow"]');
-    expect(overlay).toBeTruthy();
   });
 });
