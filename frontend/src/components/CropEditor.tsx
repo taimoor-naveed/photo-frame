@@ -34,10 +34,10 @@ export default function CropEditor({
   imageWidth,
   imageHeight,
   initialCrop,
-  saving = false,
+  saving: _saving = false,
   saveRef,
   onSave,
-  onCancel,
+  onCancel: _onCancel,
 }: CropEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
