@@ -444,7 +444,7 @@ export default function MediaDetailModal({
                   <button
                     onClick={() => cropSaveRef.current?.()}
                     disabled={cropSaving}
-                    className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.06] border border-white/[0.06] text-warm-gray hover:text-warm-white hover:bg-white/10 transition-colors text-sm disabled:opacity-50"
+                    className="px-4 py-1.5 min-h-[44px] rounded-lg bg-white/[0.12] border border-white/[0.1] text-warm-white hover:bg-white/[0.18] transition-colors text-sm disabled:opacity-50"
                     aria-label="Save crop"
                   >
                     {cropSaving ? "Saving..." : "Save Crop"}
