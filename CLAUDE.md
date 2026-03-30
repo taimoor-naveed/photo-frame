@@ -163,6 +163,29 @@ Four more bugs found despite 114 passing tests. Root cause: tests didn't probe p
 | Huge int in bulk delete → 500 | Python `int` is arbitrary-precision but SQLite is int64 | `Field(ge=1, le=2**63-1)` on list items | Always constrain integer ranges at the schema layer, even for IDs. |
 | Delete during processing → orphaned files | Background thread writes output before checking if DB record exists | Clean up output file when record is gone post-processing | Background threads must verify preconditions after long operations, not just before. |
 
+## Pi Diagnostics & Logging
+
+Log files live on the Pi at `/home/pi/logs/` (persist across reboots, rotated daily, 7-day retention).
+
+| File | What | Frequency |
+|------|------|-----------|
+| `/home/pi/logs/chromium.log` | JS console output + Chromium engine errors | Continuous (append mode) |
+| `/home/pi/logs/slideshow.log` | Slideshow on/off events from schedule script | On cron trigger |
+| `/home/pi/logs/system-health.log` | Memory, Chromium RSS, page alive, backend reachable | Every 5 min |
+
+**Frontend log prefixes:** `[Slideshow]` for slide transitions/timers/playlist, `[WS]` for WebSocket connect/disconnect/events.
+
+**Debugging a freeze/black screen:**
+1. SSH into Pi (`pi@photoframe`)
+2. `tail -100 /home/pi/logs/system-health.log` — check memory spike, Chromium death, backend unreachable
+3. `grep -E '\[Slideshow\]|\[WS\]' /home/pi/logs/chromium.log | tail -50` — last JS events before freeze
+4. `dmesg | grep -i 'oom\|killed'` — check for OOM kills
+
+**Config locations on Pi:**
+- Logrotate: `/etc/logrotate.d/photoframe` (from `scripts/pi/photoframe-logrotate.conf`)
+- Health check: `/home/pi/scripts/health-check.sh` (cron: `*/5 * * * *`)
+- Slideshow script: `/home/pi/slideshow.sh` (cron: off at midnight, on at 9am)
+
 ## Run & Test
 
 ```bash
