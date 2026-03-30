@@ -13,10 +13,10 @@ All features merged to `main` and deployed. Slideshow running on Pi kiosk, backe
 
 | Suite | Tests | Status |
 |-------|-------|--------|
-| Backend (pytest) | 78 | All passing |
+| Backend (pytest) | 214 | All passing |
 | Frontend (vitest) | 203 | All passing |
-| E2E (playwright) | ~200 (100 tests × 2 viewports, 3 skipped) | Passing |
-| **Total** | **~481** | **Green** |
+| E2E (playwright) | ~240 (120 tests × 2 viewports, 3 skipped) | Passing |
+| **Total** | **~657** | **Green** |
 
 E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 
