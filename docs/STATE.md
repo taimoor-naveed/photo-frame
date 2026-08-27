@@ -1,13 +1,13 @@
 # Photo Frame — Project State
 
-## Current Status: Deployed to Production (2026-03-12)
+## Current Status: Deployed to Production (2026-08-27, Ubuntu host)
 
-All features merged to `main` and deployed. Slideshow running on Pi kiosk, backend on home-pc.
+All features merged to `main` and deployed. Slideshow running on Pi kiosk, backend on home-pc (Ubuntu 26.04).
 
 - Motion Photo / Live Photo support: **shipped**
 - iOS Shortcut guide: `docs/ios-shortcut-setup.md`
 - Slideshow schedule (cron): on at 9am, off at midnight
-- 30 photos/videos in production
+- 33 photos/videos in production (25 photos + 8 videos)
 
 ## Test Counts
 
@@ -75,6 +75,17 @@ E2E skips: 3 responsive tests that intentionally skip on wrong viewport.
 ---
 
 ## Recent Changes
+
+### Ubuntu Host Migration (2026-08-27) — branch: `feature/ubuntu-deploy`
+
+home-pc was reinstalled with Ubuntu 26.04, replacing the previous Windows host. What changed:
+
+- **Host setup**: `docker.io` 29.1.3 + `docker-compose-v2` 2.40.3 from apt; daemon `systemctl enable`d; user `home` added to the `docker` group so `deploy.sh` needs no sudo over SSH. (`ufw` is installed but `ENABLED=no` — note `systemctl is-active ufw` reports `active` either way, so check `/etc/ufw/ufw.conf`.)
+- **`scripts/deploy.sh` rewritten for a POSIX host**: `/home/home/photo-frame` paths, `find`/`rm -rf` instead of `dir /b`/`rmdir /s /q`, `-o /dev/null`, no CRLF stripping. `ssh_homepc` no longer folds stderr into stdout (it corrupted file counts and the health-check parse). Health check moved to `/api/health`.
+- **New `--seed-from <local-dir>` flag**: uploads originals from the dev machine when the host has no data to back up. Refuses to seed over a gallery that already had originals, and never deletes the seed directory.
+- **Backup-safety hardening**: stale-backup check counts every file under the backup dir recursively; verification compares the container against the number actually backed up; the "no upload result" path now exits 1 with the backup preserved instead of deleting it.
+- **Verified**: seed path tested against a mock API (batching, filename with a space, dotfile skip, HTTP 500, unreachable backend, empty/missing dir, exit codes) on bash 3.2; remote count helpers tested against the real host.
+- **Deployed**: clean-slate deploy, 33/33 originals re-uploaded from the Mac backup and verified in-container, Pi kiosk restarted on `http://home-pc/slideshow`. Settings reset to defaults (10s, crossfade) by the clean slate.
 
 ### Photo Crop (2026-03-30) — branch: `feature/photo-crop`
 
@@ -287,12 +298,12 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 
 ### Deployment Topology
 
-- **Prod containers**: Windows PC (`home@home-pc`), runs `docker-compose.prod.yml` — nginx on port 80, backend on 8000 (internal)
+- **Prod containers**: Ubuntu 26.04 PC (`home@home-pc`), Docker Engine + compose plugin from apt (`docker.io`, `docker-compose-v2`), runs `docker-compose.prod.yml` — nginx on port 80, backend on 8000 (internal). Daemon is `systemctl enable`d, so `restart: unless-stopped` brings containers back after a reboot.
 - **Slideshow kiosk**: Raspberry Pi (`pi@photoframe`), 1024x600 touchscreen display
 - **Kiosk browser**: Chromium in kiosk mode, launched via labwc autostart (`~/.config/labwc/autostart`), pointing to `http://home-pc/slideshow`
 - **Auto-start on boot**: labwc desktop session auto-launches Chromium with `--kiosk --start-fullscreen --enable-features=VaapiVideoDecoder --enable-gpu-rasterization --remote-debugging-port=9222`
 - **Remote debugging**: Chromium exposes DevTools on port 9222 — `curl http://localhost:9222/json` from Pi, or `http://photoframe:9222` from network
-- **Redeploy process**: (1) Kill Chromium on Pi (`pkill -9 chromium`), (2) run `scripts/deploy.sh` from dev machine (tarball + SCP + rebuild on home-pc), (3) restart Chromium on Pi or reboot (`sudo reboot`)
+- **Redeploy process**: (1) Kill Chromium on Pi (`pkill -9 chromium`), (2) run `scripts/deploy.sh` from dev machine (tarball + SCP + rebuild on home-pc; add `--seed-from <dir>` to upload originals from a local backup when the host has no data), (3) restart Chromium on Pi or reboot (`sudo reboot`)
 - **Slideshow schedule script**: `/home/pi/slideshow.sh` on the Pi (source: `scripts/pi/slideshow.sh`). Uses `wlr-randr --output HDMI-A-1 --on/--off` for display power control (`vcgencmd display_power` doesn't work on this Wayland/labwc setup). Crontab: off at midnight (`0 0 * * *`), on at 9am (`0 9 * * *`). Log: `/tmp/slideshow.log`.
 
 ---
