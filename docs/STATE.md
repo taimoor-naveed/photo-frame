@@ -287,12 +287,12 @@ Slideshow now serves display-optimized media (1024x600 bounding box) instead of 
 
 ### Deployment Topology
 
-- **Prod containers**: Windows PC (`home@home-pc`), runs `docker-compose.prod.yml` — nginx on port 80, backend on 8000 (internal)
+- **Prod containers**: Ubuntu 26.04 PC (`home@home-pc`), Docker Engine + compose plugin from apt (`docker.io`, `docker-compose-v2`), runs `docker-compose.prod.yml` — nginx on port 80, backend on 8000 (internal). Daemon is `systemctl enable`d, so `restart: unless-stopped` brings containers back after a reboot.
 - **Slideshow kiosk**: Raspberry Pi (`pi@photoframe`), 1024x600 touchscreen display
 - **Kiosk browser**: Chromium in kiosk mode, launched via labwc autostart (`~/.config/labwc/autostart`), pointing to `http://home-pc/slideshow`
 - **Auto-start on boot**: labwc desktop session auto-launches Chromium with `--kiosk --start-fullscreen --enable-features=VaapiVideoDecoder --enable-gpu-rasterization --remote-debugging-port=9222`
 - **Remote debugging**: Chromium exposes DevTools on port 9222 — `curl http://localhost:9222/json` from Pi, or `http://photoframe:9222` from network
-- **Redeploy process**: (1) Kill Chromium on Pi (`pkill -9 chromium`), (2) run `scripts/deploy.sh` from dev machine (tarball + SCP + rebuild on home-pc), (3) restart Chromium on Pi or reboot (`sudo reboot`)
+- **Redeploy process**: (1) Kill Chromium on Pi (`pkill -9 chromium`), (2) run `scripts/deploy.sh` from dev machine (tarball + SCP + rebuild on home-pc; add `--seed-from <dir>` to upload originals from a local backup when the host has no data), (3) restart Chromium on Pi or reboot (`sudo reboot`)
 - **Slideshow schedule script**: `/home/pi/slideshow.sh` on the Pi (source: `scripts/pi/slideshow.sh`). Uses `wlr-randr --output HDMI-A-1 --on/--off` for display power control (`vcgencmd display_power` doesn't work on this Wayland/labwc setup). Crontab: off at midnight (`0 0 * * *`), on at 9am (`0 9 * * *`). Log: `/tmp/slideshow.log`.
 
 ---
